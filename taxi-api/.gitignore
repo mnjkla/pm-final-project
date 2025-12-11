@@ -31,3 +31,5 @@ build/
 
 ### VS Code ###
 .vscode/
+
+/taxi-api/src/main/resources/firebase-service-account.json
