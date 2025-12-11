@@ -1,39 +1,40 @@
-
-
 package com.smarttaxi.taxi_api.model.entity;
 
-import com.smarttaxi.taxi_api.model.BaseEntity;
-
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToOne;
-import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
+import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.AllArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.geo.GeoJsonPoint;
+import org.springframework.data.mongodb.core.index.GeoSpatialIndexType;
+import org.springframework.data.mongodb.core.index.GeoSpatialIndexed;
+import org.springframework.data.mongodb.core.mapping.Document;
 
-@Entity
-@Table(name = "drivers")
-@Getter
-@Setter
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
-public class Driver extends BaseEntity {
+@Document(collection = "drivers") // MongoDB dùng @Document
+public class Driver {
+    
+    @Id
+    private String id; // ID MongoDB là chuỗi String (ObjectId)
 
-    @OneToOne(optional = false)
-    @JoinColumn(name = "user_id", unique = true)
-    private User user;
+    private String name;
+    private String phone;
+    private String vehicleType; // BIKE, CAR
+    private boolean isOnline;   // Trạng thái nhận cuốc
 
-    @Column(nullable = false, length = 100)
-    private String licenseNumber;
+    // QUAN TRỌNG: Chỉ mục địa lý để tìm xe gần nhất
+    // "2dsphere" giúp tính khoảng cách theo mặt cầu trái đất
+    @GeoSpatialIndexed(type = GeoSpatialIndexType.GEO_2DSPHERE)
+    private GeoJsonPoint location;
 
-    @Column(length = 50)
-    private String status; // ACTIVE / INACTIVE / BUSY
+    // Constructor tiện lợi để tạo nhanh khi test
+    public Driver(String name, String phone, double longitude, double latitude) {
+        this.name = name;
+        this.phone = phone;
+        this.isOnline = true;
+        this.vehicleType = "BIKE";
+        // MongoDB quy định: Kinh độ (Longitude) trước, Vĩ độ (Latitude) sau
+        this.location = new GeoJsonPoint(longitude, latitude);
+    }
 }
-
-
-

@@ -1,0 +1,14 @@
+{
+  "configurations": [
+    {
+      "type": "java",
+      "name": "Spring Boot-TaxiApiApplication<taxi-api>",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "mainClass": "com.smarttaxi.taxi_api.TaxiApiApplication",
+      "projectName": "taxi-api",
+      "args": "",
+      "envFile": "${workspaceFolder}/.env"
+    }
+  ]
+}
