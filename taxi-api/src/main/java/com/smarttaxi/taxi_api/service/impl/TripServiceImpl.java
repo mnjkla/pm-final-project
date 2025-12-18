@@ -7,7 +7,6 @@ import com.smarttaxi.taxi_api.repository.DriverRepository;
 import com.smarttaxi.taxi_api.repository.TripRepository;
 import com.smarttaxi.taxi_api.service.TripService;
 import com.smarttaxi.taxi_api.payload.request.TripRequest;
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.Metrics;
 import org.springframework.data.geo.Point;
@@ -16,48 +15,48 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 @Service
-@RequiredArgsConstructor
+// XÓA @RequiredArgsConstructor VÌ NÓ LÀ CỦA LOMBOK
 public class TripServiceImpl implements TripService {
 
-    // SỬA LỖI: Xóa "= null" và "=". Để nguyên khai báo final để Lombok tự xử lý Injection.
     private final TripRepository tripRepository;
     private final DriverRepository driverRepository;
 
+    // --- TỰ VIẾT CONSTRUCTOR THAY CHO LOMBOK ---
+    // Spring sẽ dùng cái này để tiêm (Inject) repository vào
+    public TripServiceImpl(TripRepository tripRepository, DriverRepository driverRepository) {
+        this.tripRepository = tripRepository;
+        this.driverRepository = driverRepository;
+    }
+
     @Override
     public Trip createTrip(TripRequest request) {
-        // 1. Chuẩn bị dữ liệu địa lý
-        // Point dùng để tính toán tìm kiếm (Spring Data Geo)
+        // 1. Tìm tài xế
         Point searchPoint = new Point(request.getPickupLongitude(), request.getPickupLatitude());
-        
-        // 2. Tìm tài xế đang Online trong bán kính 2km
         Distance radius = new Distance(2, Metrics.KILOMETERS);
+        
         List<Driver> nearbyDrivers = driverRepository.findByIsOnlineTrueAndLocationNear(searchPoint, radius);
 
         if (nearbyDrivers.isEmpty()) {
             throw new RuntimeException("Rất tiếc, không tìm thấy tài xế nào quanh đây!");
         }
 
-        // 3. Tạo chuyến đi mới
+        // 2. Tạo chuyến đi
         Trip newTrip = new Trip();
         
-        // LƯU Ý: Entity Trip dùng GeoJsonPoint để lưu trữ chuẩn MongoDB
+        // Bây giờ file Trip.java đã có hàm này (do viết tay ở bước 1) nên sẽ hết lỗi đỏ
         newTrip.setPickupLocation(new GeoJsonPoint(request.getPickupLongitude(), request.getPickupLatitude()));
         newTrip.setPickupAddress(request.getPickupAddress());
 
-        // Xử lý điểm đến (nếu khách có chọn)
         if (request.getDestinationLongitude() != null && request.getDestinationLatitude() != null) {
             newTrip.setDestinationLocation(new GeoJsonPoint(request.getDestinationLongitude(), request.getDestinationLatitude()));
             newTrip.setDestinationAddress(request.getDestinationAddress());
         }
 
-        // Gán tài xế (Lấy người đầu tiên tìm thấy - Logic đơn giản nhất)
+        // 3. Gán tài xế
         Driver selectedDriver = nearbyDrivers.get(0); 
         newTrip.setDriverId(selectedDriver.getId());
         newTrip.setStatus(TripStatus.DRIVER_ACCEPTED); 
         
-        // Có thể lưu thêm CustomerId nếu sau này có Token xác thực
-        // newTrip.setCustomerId(SecurityContextHolder...);
-
         return tripRepository.save(newTrip);
     }
 
