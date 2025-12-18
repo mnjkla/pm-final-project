@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'screens/home_screen.dart'; // Import đúng đường dẫn
+import 'screens/main_screen.dart';
+import 'screens/role_selection_screen.dart';// Import màn hình mới
 
 void main() {
   runApp(const MyApp());
@@ -14,10 +15,10 @@ class MyApp extends StatelessWidget {
       title: 'Smart Taxi',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
-        // Sau này có thể cấu hình Theme ở folder core/theme.dart
       ),
-      home: const HomeScreen(),
+      home: const RoleSelectionScreen(), // Đổi HomeScreen() thành MainScreen()
     );
   }
 }
