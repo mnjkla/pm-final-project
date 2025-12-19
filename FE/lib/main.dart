@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'screens/main_screen.dart';
 import 'screens/role_selection_screen.dart';// Import màn hình mới
+import 'package:firebase_core/firebase_core.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(); // Khởi tạo Firebase
   runApp(const MyApp());
 }
 

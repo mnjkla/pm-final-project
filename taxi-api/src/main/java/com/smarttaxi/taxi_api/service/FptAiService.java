@@ -27,7 +27,7 @@ public class FptAiService {
             RestTemplate restTemplate = new RestTemplate();
 
             HttpHeaders headers = new HttpHeaders();
-            headers.set("api-key", fptApiKey); // Sử dụng biến đã được inject
+            headers.set("api-key", fptApiKey); 
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
