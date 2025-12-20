@@ -1,10 +1,13 @@
 package com.smarttaxi.taxi_api.repository;
 
-import com.smarttaxi.taxi_api.model.entity.Driver;
+import java.util.List;
+import java.util.Optional;
+
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.Point;
 import org.springframework.data.mongodb.repository.MongoRepository;
-import java.util.List;
+
+import com.smarttaxi.taxi_api.model.entity.Driver;
 
 
 public interface DriverRepository extends MongoRepository<Driver, String> {
@@ -15,4 +18,6 @@ public interface DriverRepository extends MongoRepository<Driver, String> {
     
     
     List<Driver> findByIsOnlineTrueAndLocationNear(Point location, Distance distance);
+    
+    Optional<Driver> findByFirebaseId(String firebaseId);
 }

@@ -1,13 +1,14 @@
 package com.smarttaxi.taxi_api.model.entity;
 
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import lombok.AllArgsConstructor;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.geo.GeoJsonPoint;
 import org.springframework.data.mongodb.core.index.GeoSpatialIndexType;
 import org.springframework.data.mongodb.core.index.GeoSpatialIndexed;
 import org.springframework.data.mongodb.core.mapping.Document;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
@@ -17,6 +18,8 @@ public class Driver {
     
     @Id
     private String id; // ID MongoDB là chuỗi String (ObjectId)
+
+    private String firebaseId; // QUAN TRỌNG: Link với Firebase
 
     private String name;
     private String phone;

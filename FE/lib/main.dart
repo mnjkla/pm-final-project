@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
-import 'screens/main_screen.dart';
-import 'screens/role_selection_screen.dart';// Import màn hình mới
 import 'package:firebase_core/firebase_core.dart';
+import 'screens/role_selection_screen.dart';
+// 1. THÊM DÒNG NÀY (File này do lệnh flutterfire configure tạo ra)
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(); // Khởi tạo Firebase
+
+  // 2. SỬA ĐOẠN NÀY:
+  // Truyền options vào để Web biết cấu hình Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const MyApp());
 }
 
@@ -21,7 +28,8 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-      home: const RoleSelectionScreen(), // Đổi HomeScreen() thành MainScreen()
+      // Đảm bảo bạn đã import đúng màn hình này
+      home: const RoleSelectionScreen(),
     );
   }
 }

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import '../core/app_colors.dart'; // Đảm bảo file này có màu sắc (nếu chưa có thì dùng Colors.green)
-import 'main_screen.dart'; // Màn hình Khách hàng (Chứa HomeScreen)
-import 'driver_home_screen.dart'; // Màn hình Tài xế
+import 'main_screen.dart';
 import 'driver_main_screen.dart';
+import 'login_screen.dart'; // Đừng quên import file này
 
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
@@ -17,7 +16,6 @@ class RoleSelectionScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo hoặc Tiêu đề
               const Icon(Icons.local_taxi, size: 100, color: Colors.green),
               const SizedBox(height: 20),
               const Text(
@@ -36,26 +34,26 @@ class RoleSelectionScreen extends StatelessWidget {
               ),
               const SizedBox(height: 60),
 
-              // --- NÚT CHỌN KHÁCH HÀNG ---
+              // Nút Khách hàng
               _buildRoleButton(
                 context,
                 title: "TÔI LÀ KHÁCH HÀNG",
                 subtitle: "Đặt xe và di chuyển",
                 icon: Icons.person,
                 color: Colors.green,
-                destination: const MainScreen(),
+                role: "PASSENGER",
               ),
 
               const SizedBox(height: 20),
 
-              // --- NÚT CHỌN TÀI XẾ ---
+              // Nút Tài xế
               _buildRoleButton(
                 context,
                 title: "TÔI LÀ TÀI XẾ",
                 subtitle: "Nhận cuốc và kiếm tiền",
                 icon: Icons.drive_eta,
                 color: Colors.blue,
-                destination: const DriverMainScreen(),
+                role: "DRIVER",
               ),
             ],
           ),
@@ -70,18 +68,19 @@ class RoleSelectionScreen extends StatelessWidget {
         required String subtitle,
         required IconData icon,
         required Color color,
-        required Widget destination,
+        required String role,
       }) {
     return InkWell(
       onTap: () {
-        // Điều hướng sang màn hình tương ứng
+        // Chuyển sang màn hình Đăng Nhập
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => destination),
+          MaterialPageRoute(
+            builder: (context) => LoginScreen(role: role),
+          ),
         );
-      },
-      borderRadius: BorderRadius.circular(15),
-      child: Container(
+      }, // <--- BẠN THIẾU DẤU PHẨY VÀ NGOẶC Ở ĐÂY
+      child: Container( // <--- BẠN BỊ MẤT ĐOẠN UI NÀY
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
