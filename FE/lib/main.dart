@@ -3,6 +3,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'screens/login_screen.dart';
 // 1. THÊM DÒNG NÀY (File này do lệnh flutterfire configure tạo ra)
 import 'firebase_options.dart';
+import 'screens/home_screen.dart';
 
 
 void main() async {
