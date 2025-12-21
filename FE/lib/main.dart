@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'screens/role_selection_screen.dart';
+import 'screens/login_screen.dart';
 // 1. THÊM DÒNG NÀY (File này do lệnh flutterfire configure tạo ra)
 import 'firebase_options.dart';
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,14 +23,9 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Smart Taxi',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-        useMaterial3: true,
-      ),
-      // Đảm bảo bạn đã import đúng màn hình này
-      home: const RoleSelectionScreen(),
+      // ... theme
+      // Sửa home thành LoginScreen (không cần tham số)
+      home: const LoginScreen(),
     );
   }
 }

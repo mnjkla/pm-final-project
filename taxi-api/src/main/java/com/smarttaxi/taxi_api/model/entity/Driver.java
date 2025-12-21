@@ -6,38 +6,54 @@ import org.springframework.data.mongodb.core.index.GeoSpatialIndexType;
 import org.springframework.data.mongodb.core.index.GeoSpatialIndexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-@Document(collection = "drivers") // MongoDB dùng @Document
+@Document(collection = "drivers")
 public class Driver {
     
     @Id
-    private String id; // ID MongoDB là chuỗi String (ObjectId)
-
-    private String firebaseId; // QUAN TRỌNG: Link với Firebase
+    private String id;
+    private String firebaseId; // Link với Firebase User
 
     private String name;
     private String phone;
-    private String vehicleType; // BIKE, CAR
-    private boolean isOnline;   // Trạng thái nhận cuốc
+    
+    // --- THÔNG TIN XE (MỚI) ---
+    private String vehicleType;  // BIKE, CAR_4, CAR_7
+    private String vehiclePlate; // Biển số (ví dụ: 29A-123.45)
+    private String vehicleBrand; // Hãng xe (Honda Vision, Toyota Vios...)
 
-    // QUAN TRỌNG: Chỉ mục địa lý để tìm xe gần nhất
-    // "2dsphere" giúp tính khoảng cách theo mặt cầu trái đất
+    private boolean isOnline;   
+
     @GeoSpatialIndexed(type = GeoSpatialIndexType.GEO_2DSPHERE)
     private GeoJsonPoint location;
 
-    // Constructor tiện lợi để tạo nhanh khi test
-    public Driver(String name, String phone, double longitude, double latitude) {
-        this.name = name;
-        this.phone = phone;
-        this.isOnline = true;
-        this.vehicleType = "BIKE";
-        // MongoDB quy định: Kinh độ (Longitude) trước, Vĩ độ (Latitude) sau
-        this.location = new GeoJsonPoint(longitude, latitude);
-    }
+    // --- 1. CONSTRUCTOR ---
+    public Driver() {}
+
+    // --- 2. GETTERS & SETTERS (Thủ công) ---
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+
+    public String getFirebaseId() { return firebaseId; }
+    public void setFirebaseId(String firebaseId) { this.firebaseId = firebaseId; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
+
+    public String getVehicleType() { return vehicleType; }
+    public void setVehicleType(String vehicleType) { this.vehicleType = vehicleType; }
+
+    public String getVehiclePlate() { return vehiclePlate; }
+    public void setVehiclePlate(String vehiclePlate) { this.vehiclePlate = vehiclePlate; }
+
+    public String getVehicleBrand() { return vehicleBrand; }
+    public void setVehicleBrand(String vehicleBrand) { this.vehicleBrand = vehicleBrand; }
+
+    public boolean isOnline() { return isOnline; }
+    public void setOnline(boolean online) { isOnline = online; }
+
+    public GeoJsonPoint getLocation() { return location; }
+    public void setLocation(GeoJsonPoint location) { this.location = location; }
 }

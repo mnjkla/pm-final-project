@@ -1,31 +1,23 @@
-// File: lib/services/auth_service.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:dio/dio.dart';
-import '../core/api_client.dart'; // Đảm bảo đúng đường dẫn ApiClient
+import '../core/api_client.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final GoogleSignIn _googleSignIn = GoogleSignIn();
   final Dio _dio = ApiClient().dio;
 
-  // 1. Đăng nhập bằng Google
+  // --- 1. GOOGLE SIGN IN (Giữ nguyên) ---
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      // Kích hoạt luồng đăng nhập Google
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return null; // Người dùng hủy đăng nhập
-
-      // Lấy chi tiết xác thực từ request
+      if (googleUser == null) return null;
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
-
-      // Tạo credential mới
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
-
-      // Đăng nhập vào Firebase
       return await _auth.signInWithCredential(credential);
     } catch (e) {
       print("Lỗi Google Sign In: $e");
@@ -33,25 +25,69 @@ class AuthService {
     }
   }
 
-  // 2. Đồng bộ User với Backend (Spring Boot)
-  Future<void> syncUserToBackend(String role, String name) async {
+  // --- 2. EMAIL SIGN UP (Đăng ký mới) ---
+  Future<UserCredential> signUpWithEmail(String email, String password) async {
+    try {
+      return await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      print("Lỗi Đăng ký Email: $e");
+      rethrow;
+    }
+  }
+
+  // --- 3. EMAIL SIGN IN (Đăng nhập mới) ---
+  Future<UserCredential> signInWithEmail(String email, String password) async {
+    try {
+      return await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } catch (e) {
+      print("Lỗi Đăng nhập Email: $e");
+      rethrow;
+    }
+  }
+
+  // --- 4. ĐỒNG BỘ BACKEND (Giữ nguyên logic cũ) ---
+  Future<void> syncUserToBackend({
+    required String role,
+    required String name,
+    required String phone,
+    String? vehicleType,
+    String? vehiclePlate,
+    String? vehicleBrand,
+  }) async {
     try {
       User? currentUser = _auth.currentUser;
       if (currentUser == null) return;
 
+      // Cập nhật tên hiển thị lên Firebase nếu chưa có (cho trường hợp đăng ký Email)
+      if (currentUser.displayName == null || currentUser.displayName != name) {
+        await currentUser.updateDisplayName(name);
+      }
+
       String? token = await currentUser.getIdToken();
 
-      // Gọi API Backend
+      final Map<String, dynamic> data = {
+        'role': role,
+        'name': name,
+        'phone': phone,
+      };
+
+      if (role == 'DRIVER') {
+        data['vehicleType'] = vehicleType;
+        data['vehiclePlate'] = vehiclePlate;
+        data['vehicleBrand'] = vehicleBrand;
+      }
+
       final response = await _dio.post(
         '/auth/sync-user',
-        data: {
-          'role': role, // "DRIVER" hoặc "PASSENGER"
-          'name': name,
-        },
+        data: data,
         options: Options(
-          headers: {
-            'Authorization': 'Bearer $token',
-          },
+          headers: {'Authorization': 'Bearer $token'},
         ),
       );
       print("✅ Đồng bộ Backend thành công: ${response.data}");
@@ -61,9 +97,31 @@ class AuthService {
     }
   }
 
-  // 3. Đăng xuất
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _auth.signOut();
+  }
+  // ... (Code cũ giữ nguyên)
+
+  // API MỚI: Lấy thông tin User hiện tại
+  Future<Map<String, dynamic>> fetchUserProfile() async {
+    try {
+      User? currentUser = _auth.currentUser;
+      if (currentUser == null) throw Exception("Chưa đăng nhập Firebase");
+
+      String? token = await currentUser.getIdToken();
+
+      final response = await _dio.get(
+        '/auth/profile', // Gọi vào API Java vừa viết
+        options: Options(
+          headers: {'Authorization': 'Bearer $token'},
+        ),
+      );
+
+      return response.data; // Trả về Map (role, data)
+    } catch (e) {
+      print("❌ Lỗi lấy Profile: $e");
+      throw Exception("Không thể lấy thông tin người dùng.");
+    }
   }
 }

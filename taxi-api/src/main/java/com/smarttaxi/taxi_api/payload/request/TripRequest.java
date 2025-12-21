@@ -4,7 +4,7 @@ public class TripRequest {
     
     private Double pickupLatitude;
     private Double pickupLongitude;
-    private String pickupAddress; // Đã thêm trường này
+    private String pickupAddress; 
     
     private String destinationAddress;
     private Double destinationLatitude;
@@ -12,7 +12,6 @@ public class TripRequest {
     
     private String vehicleType;
 
-    // --- GETTERS & SETTERS (Viết tay) ---
 
     public Double getPickupLatitude() { return pickupLatitude; }
     public void setPickupLatitude(Double pickupLatitude) { this.pickupLatitude = pickupLatitude; }

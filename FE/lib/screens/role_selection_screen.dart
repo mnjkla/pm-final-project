@@ -1,124 +1,182 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/auth_service.dart';
 import 'main_screen.dart';
 import 'driver_main_screen.dart';
-import 'login_screen.dart'; // Đừng quên import file này
+import 'login_screen.dart'; // Để nút Logout có thể quay về đây
 
-class RoleSelectionScreen extends StatelessWidget {
+class RoleSelectionScreen extends StatefulWidget {
   const RoleSelectionScreen({super.key});
+
+  @override
+  State<RoleSelectionScreen> createState() => _RoleSelectionScreenState();
+}
+
+class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
+  final AuthService _authService = AuthService();
+
+  // Controllers cho Dialog nhập thông tin
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _plateController = TextEditingController();
+  final TextEditingController _brandController = TextEditingController();
+  String _selectedVehicleType = 'CAR_4';
+
+  // --- HÀM XỬ LÝ KHI CHỌN VAI TRÒ ---
+  void _onRoleSelected(String role) async {
+    // Lấy user hiện tại (đã login ở bước trước)
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Hiện Dialog nhập thông tin bổ sung
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text("Hoàn tất đăng ký ${role == 'DRIVER' ? 'Tài xế' : 'Khách'}"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                decoration: const InputDecoration(labelText: "Số điện thoại *", prefixIcon: Icon(Icons.phone)),
+              ),
+              if (role == 'DRIVER') ...[
+                const SizedBox(height: 15),
+                DropdownButtonFormField<String>(
+                  value: _selectedVehicleType,
+                  items: const [
+                    DropdownMenuItem(value: 'BIKE', child: Text("Xe máy")),
+                    DropdownMenuItem(value: 'CAR_4', child: Text("Ô tô 4 chỗ")),
+                    DropdownMenuItem(value: 'CAR_7', child: Text("Ô tô 7 chỗ")),
+                  ],
+                  onChanged: (v) => _selectedVehicleType = v!,
+                  decoration: const InputDecoration(labelText: "Loại xe"),
+                ),
+                const SizedBox(height: 15),
+                TextField(controller: _brandController, decoration: const InputDecoration(labelText: "Hãng xe (VD: Honda)", prefixIcon: Icon(Icons.branding_watermark))),
+                const SizedBox(height: 15),
+                TextField(controller: _plateController, decoration: const InputDecoration(labelText: "Biển số", prefixIcon: Icon(Icons.confirmation_number))),
+              ]
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context), // Đóng dialog, chọn lại
+            child: const Text("Quay lại"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context); // Đóng dialog
+              _submitRegistration(role, user); // Gửi đi
+            },
+            child: const Text("Xác nhận"),
+          )
+        ],
+      ),
+    );
+  }
+
+  // --- GỬI API ĐĂNG KÝ ---
+  void _submitRegistration(String role, User user) async {
+    try {
+      // Hiện loading (bạn có thể làm UI đẹp hơn)
+      showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+
+      String name = user.displayName ?? "Người dùng mới";
+
+      await _authService.syncUserToBackend(
+        role: role,
+        name: name,
+        phone: _phoneController.text.isEmpty ? "Chưa cập nhật" : _phoneController.text,
+        vehicleType: role == 'DRIVER' ? _selectedVehicleType : null,
+        vehiclePlate: role == 'DRIVER' ? _plateController.text : null,
+        vehicleBrand: role == 'DRIVER' ? _brandController.text : null,
+      );
+
+      if (!mounted) return;
+      Navigator.pop(context); // Tắt loading
+
+      // Vào màn hình chính
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => role == 'DRIVER' ? const DriverMainScreen() : const MainScreen()),
+            (route) => false,
+      );
+
+    } catch (e) {
+      Navigator.pop(context); // Tắt loading
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: $e")));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 30),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.local_taxi, size: 100, color: Colors.green),
-              const SizedBox(height: 20),
-              const Text(
-                "SMART TAXI",
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green,
-                  letterSpacing: 2,
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                "Bạn muốn sử dụng với vai trò gì?",
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
-              const SizedBox(height: 60),
+      appBar: AppBar(
+        title: const Text("Chọn vai trò"),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await _authService.signOut();
+              if(!mounted) return;
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+            },
+          )
+        ],
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text("Bạn muốn tham gia với vai trò gì?", style: TextStyle(fontSize: 18, color: Colors.grey)),
+            const SizedBox(height: 40),
 
-              // Nút Khách hàng
-              _buildRoleButton(
+            // Nút Khách
+            _buildBigButton(
                 context,
-                title: "TÔI LÀ KHÁCH HÀNG",
-                subtitle: "Đặt xe và di chuyển",
-                icon: Icons.person,
-                color: Colors.green,
-                role: "PASSENGER",
-              ),
+                "KHÁCH HÀNG",
+                Icons.person,
+                Colors.green,
+                    () => _onRoleSelected("PASSENGER")
+            ),
 
-              const SizedBox(height: 20),
+            const SizedBox(height: 20),
 
-              // Nút Tài xế
-              _buildRoleButton(
+            // Nút Tài xế
+            _buildBigButton(
                 context,
-                title: "TÔI LÀ TÀI XẾ",
-                subtitle: "Nhận cuốc và kiếm tiền",
-                icon: Icons.drive_eta,
-                color: Colors.blue,
-                role: "DRIVER",
-              ),
-            ],
-          ),
+                "TÀI XẾ",
+                Icons.drive_eta,
+                Colors.blue,
+                    () => _onRoleSelected("DRIVER")
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildRoleButton(
-      BuildContext context, {
-        required String title,
-        required String subtitle,
-        required IconData icon,
-        required Color color,
-        required String role,
-      }) {
+  Widget _buildBigButton(BuildContext context, String title, IconData icon, Color color, VoidCallback onTap) {
     return InkWell(
-      onTap: () {
-        // Chuyển sang màn hình Đăng Nhập
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => LoginScreen(role: role),
-          ),
-        );
-      }, // <--- BẠN THIẾU DẤU PHẨY VÀ NGOẶC Ở ĐÂY
-      child: Container( // <--- BẠN BỊ MẤT ĐOẠN UI NÀY
+      onTap: onTap,
+      child: Container(
+        width: 250,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: color.withOpacity(0.1),
           borderRadius: BorderRadius.circular(15),
           border: Border.all(color: color, width: 2),
         ),
-        child: Row(
+        child: Column(
           children: [
-            Container(
-              padding: const EdgeInsets.all(15),
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: Colors.white, size: 30),
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    subtitle,
-                    style: TextStyle(color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios, color: color),
+            Icon(icon, size: 50, color: color),
+            const SizedBox(height: 10),
+            Text(title, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
           ],
         ),
       ),

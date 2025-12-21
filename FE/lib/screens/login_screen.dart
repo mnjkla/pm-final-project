@@ -1,138 +1,171 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import 'main_screen.dart';       // Màn hình Khách
+import 'main_screen.dart';        // Màn hình Khách
 import 'driver_main_screen.dart'; // Màn hình Tài xế
+import 'role_selection_screen.dart'; // Màn hình chọn vai trò (cho user mới)
 
 class LoginScreen extends StatefulWidget {
-  final String role; // "PASSENGER" hoặc "DRIVER"
-
-  const LoginScreen({super.key, required this.role});
+  const LoginScreen({super.key}); // Không cần tham số role nữa
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // Khởi tạo AuthService (Đảm bảo bạn đã tạo file này như hướng dẫn trước)
   final AuthService _authService = AuthService();
   bool _isLoading = false;
 
-  void _handleGoogleLogin() async {
+  // Biến cho chế độ Email/Pass
+  bool _isLoginMode = true;
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  // --- HÀM XỬ LÝ QUAN TRỌNG NHẤT: PHÂN QUYỀN ---
+  Future<void> _handlePostLogin() async {
+    if (!mounted) return;
+    // Vẫn giữ loading để người dùng đợi kiểm tra Role
     setState(() => _isLoading = true);
 
     try {
-      // 1. Đăng nhập Firebase
-      final userCredential = await _authService.signInWithGoogle();
+      // 1. Hỏi Backend: "Tôi là ai?"
+      final profile = await _authService.fetchUserProfile();
+      final String role = profile['role']; // DRIVER, PASSENGER, hoặc NEW
 
-      if (userCredential != null && mounted) {
-        // 2. Lấy tên user
-        String name = userCredential.user?.displayName ?? "Người dùng mới";
+      if (!mounted) return;
 
-        // 3. Gọi Backend để lưu user vào MongoDB
-        await _authService.syncUserToBackend(widget.role, name);
-
-        // 4. Chuyển màn hình
-        if (!mounted) return;
-
-        // Xóa hết các màn hình cũ trong stack để không back lại được Login
-        Navigator.popUntil(context, (route) => route.isFirst);
-
-        if (widget.role == 'PASSENGER') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const MainScreen()),
-          );
-        } else {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const DriverMainScreen()),
-          );
-        }
+      // 2. Điều hướng dựa trên câu trả lời
+      if (role == 'DRIVER') {
+        print("Xin chào Tài xế!");
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverMainScreen()));
+      } else if (role == 'PASSENGER') {
+        print("Xin chào Khách hàng!");
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainScreen()));
+      } else {
+        // role == 'NEW' -> Chưa có trong DB -> Sang màn chọn vai trò để đăng ký
+        print("Người dùng mới -> Chuyển sang chọn vai trò");
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const RoleSelectionScreen()));
       }
+
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Lỗi đăng nhập: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      _showError("Lỗi kiểm tra hồ sơ: $e");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // --- Xử lý Google ---
+  void _handleGoogleLogin() async {
+    setState(() => _isLoading = true);
+    try {
+      final user = await _authService.signInWithGoogle();
+      if (user != null) {
+        await _handlePostLogin(); // Đăng nhập xong -> Gọi hàm phân quyền
+      } else {
+        setState(() => _isLoading = false); // User hủy
+      }
+    } catch (e) {
+      _showError("Lỗi Google: $e");
+      setState(() => _isLoading = false);
+    }
+  }
+
+  // --- Xử lý Email/Pass ---
+  void _handleEmailAuth() async {
+    setState(() => _isLoading = true);
+    try {
+      if (_isLoginMode) {
+        // Đăng nhập
+        await _authService.signInWithEmail(_emailController.text, _passwordController.text);
+        await _handlePostLogin();
+      } else {
+        // Đăng ký tài khoản Firebase trước
+        await _authService.signUpWithEmail(_emailController.text, _passwordController.text);
+        // Đăng ký xong thì chắc chắn là User mới -> Sang màn chọn vai trò luôn
+        if (mounted) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const RoleSelectionScreen()));
+        }
+      }
+    } catch (e) {
+      _showError("Lỗi xác thực: $e");
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String msg) {
+    if(!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isDriver = widget.role == 'DRIVER';
-    final mainColor = isDriver ? Colors.blue : Colors.green;
-
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: BackButton(color: mainColor), // Nút back màu theo role
-      ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 30),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Icon đại diện
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: mainColor.withOpacity(0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                isDriver ? Icons.drive_eta : Icons.person,
-                size: 60,
-                color: mainColor,
-              ),
-            ),
-            const SizedBox(height: 30),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(30),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.local_taxi, size: 80, color: Colors.green),
+              const SizedBox(height: 10),
+              const Text("SMART TAXI", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.green)),
+              const SizedBox(height: 40),
 
-            Text(
-              "Đăng nhập ${isDriver ? 'Tài xế' : 'Khách hàng'}",
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: mainColor,
+              // Form Email
+              TextField(
+                controller: _emailController,
+                decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
               ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              "Vui lòng đăng nhập để đồng bộ thông tin chuyến đi của bạn.",
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 50),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _passwordController,
+                obscureText: true,
+                decoration: const InputDecoration(labelText: "Mật khẩu", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 25),
 
-            // Nút Login Google
-            _isLoading
-                ? CircularProgressIndicator(color: mainColor)
-                : SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton.icon(
-                onPressed: _handleGoogleLogin,
-                icon: const Icon(Icons.login, color: Colors.white),
-                label: const Text(
-                  "Tiếp tục với Google",
-                  style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
+              // Nút Login/Register
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _handleEmailAuth,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : Text(_isLoginMode ? "ĐĂNG NHẬP" : "ĐĂNG KÝ NGAY", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
               ),
-            ),
-          ],
+
+              // Chuyển chế độ
+              TextButton(
+                onPressed: () => setState(() => _isLoginMode = !_isLoginMode),
+                child: Text(_isLoginMode ? "Chưa có tài khoản? Đăng ký" : "Đã có tài khoản? Đăng nhập"),
+              ),
+
+              const Divider(height: 40),
+
+              // Nút Google
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _handleGoogleLogin,
+                  icon: const Icon(Icons.g_mobiledata, color: Colors.red, size: 30),
+                  label: const Text("Tiếp tục bằng Google", style: TextStyle(fontSize: 16)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
