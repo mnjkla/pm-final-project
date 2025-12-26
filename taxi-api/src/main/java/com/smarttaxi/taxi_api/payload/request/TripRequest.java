@@ -1,5 +1,6 @@
 package com.smarttaxi.taxi_api.payload.request;
-
+import lombok.Data;
+@Data
 public class TripRequest {
     
     private Double pickupLatitude;
@@ -12,6 +13,7 @@ public class TripRequest {
     
     private String vehicleType;
 
+    private String customerId;
 
     public Double getPickupLatitude() { return pickupLatitude; }
     public void setPickupLatitude(Double pickupLatitude) { this.pickupLatitude = pickupLatitude; }
