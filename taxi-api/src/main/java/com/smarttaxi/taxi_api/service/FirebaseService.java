@@ -1,4 +1,3 @@
-// File: src/main/java/com/smarttaxi/taxi_api/service/FirebaseService.java
 package com.smarttaxi.taxi_api.service;
 
 import java.util.HashMap;
@@ -13,24 +12,43 @@ import com.smarttaxi.taxi_api.model.entity.Trip;
 @Service
 public class FirebaseService {
 
-    public void notifyDriverNewTrip(String driverId, Trip trip) {
-        // Lưu thông tin chuyến đi vào node: drivers/{driverId}/trip_request
-        DatabaseReference ref = FirebaseDatabase.getInstance().getReference("drivers/" + driverId + "/trip_request");
+    public void notifyDriverNewTrip(String driverFirebaseId, Trip trip) {
+        if (driverFirebaseId == null || driverFirebaseId.isEmpty()) return;
 
-        Map<String, Object> requestData = new HashMap<>();
-        requestData.put("tripId", trip.getId());
-        requestData.put("pickupAddress", trip.getPickupAddress());
-        requestData.put("destinationAddress", trip.getDestinationAddress());
-        requestData.put("price", trip.getPrice());
-        requestData.put("distance", trip.getDistance());
-        requestData.put("timestamp", System.currentTimeMillis());
+        DatabaseReference ref = FirebaseDatabase.getInstance().getReference("drivers/" + driverFirebaseId + "/trip_request");
 
-        ref.setValueAsync(requestData);
+        // 🟢 QUAN TRỌNG: Chuyển đổi Trip thành Map phẳng (Flatten) để App dễ lấy
+        Map<String, Object> tripData = new HashMap<>();
+        tripData.put("tripId", trip.getId());
+        tripData.put("customerId", trip.getCustomerId());
+        tripData.put("price", trip.getPrice());
+        tripData.put("distance", trip.getDistance());
+        
+        tripData.put("pickupAddress", trip.getPickupAddress());
+        tripData.put("destinationAddress", trip.getDestinationAddress());
+
+        // 👇 XỬ LÝ TỌA ĐỘ CẨN THẬN (Để App không bị lỗi điểm đến)
+        if (trip.getPickupLocation() != null) {
+            // Lưu ý: GeoJsonPoint getX() là Longitude (Kinh độ), getY() là Latitude (Vĩ độ)
+            tripData.put("pickupLat", trip.getPickupLocation().getY());
+            tripData.put("pickupLng", trip.getPickupLocation().getX());
+        }
+
+        if (trip.getDestinationLocation() != null) {
+            tripData.put("destinationLat", trip.getDestinationLocation().getY());
+            tripData.put("destinationLng", trip.getDestinationLocation().getX());
+        }
+        
+        // Thêm thông tin khách (Demo)
+        tripData.put("customerPhone", "0909.123.456"); 
+
+        // Gửi lên Firebase
+        ref.setValueAsync(tripData);
     }
 
-    public void clearDriverRequest(String driverId) {
-        // Xóa yêu cầu sau khi tài xế đã phản hồi
-        DatabaseReference ref = FirebaseDatabase.getInstance().getReference("drivers/" + driverId + "/trip_request");
+    public void clearDriverRequest(String driverFirebaseId) {
+        if (driverFirebaseId == null) return;
+        DatabaseReference ref = FirebaseDatabase.getInstance().getReference("drivers/" + driverFirebaseId + "/trip_request");
         ref.removeValueAsync();
     }
 }

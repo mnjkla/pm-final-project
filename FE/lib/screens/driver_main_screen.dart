@@ -5,14 +5,14 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:dio/dio.dart'; // Để vẽ đường (Polyline)
-
+import 'package:dio/dio.dart';
+import 'driver_trip_screen.dart';
 import '../core/app_colors.dart';
 import '../services/auth_service.dart';
-import '../services/place_service.dart'; // [MỚI] Import PlaceService
+import '../services/place_service.dart';
 import 'login_screen.dart';
-
 import '../core/api_client.dart';
+
 class DriverMainScreen extends StatefulWidget {
   const DriverMainScreen({super.key});
 
@@ -21,160 +21,67 @@ class DriverMainScreen extends StatefulWidget {
 }
 
 class _DriverMainScreenState extends State<DriverMainScreen> {
-  bool _isDialogShowing = false;
-  int _selectedIndex = 0;
-
+  // --- 1. BIẾN QUẢN LÝ TRẠNG THÁI ---
   final MapController _mapController = MapController();
   final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final PlaceService _placeService = PlaceService(); // [MỚI]
-  final Dio _dio = Dio(); // [MỚI] Để gọi API vẽ đường
+  final PlaceService _placeService = PlaceService();
+  final Dio _dio = Dio();
+  double _walletBalance = 0.0;
 
-
-  LatLng _currentLocation = const LatLng(21.0285, 105.8542);
+  LatLng _currentLocation = const LatLng(21.0285, 105.8542); // Mặc định Hà Nội
   bool _isOnline = false;
   bool _isLoading = true;
-  StreamSubscription<Position>? _positionStream;
+  int _selectedIndex = 0;
 
-  // --- [MỚI] BIẾN CHO CHẾ ĐỘ TIỆN ĐƯỜNG ---
-  LatLng? _convenienceDest;       // Tọa độ điểm muốn về
-  String _convenienceAddress = ""; // Địa chỉ điểm muốn về
-  List<LatLng> _routePoints = [];  // Đường vẽ trên bản đồ
-  List<Map<String, dynamic>> _searchResults = []; // Kết quả tìm kiếm
+  // Quản lý Stream (Lắng nghe dữ liệu)
+  StreamSubscription<Position>? _positionStream;
+  StreamSubscription<DatabaseEvent>? _tripRequestSubscription;
+  bool _isDialogShowing = false;
+
+  // --- BIẾN CHO CHẾ ĐỘ TIỆN ĐƯỜNG ---
+  LatLng? _convenienceDest;
+  String _convenienceAddress = "";
+  List<LatLng> _routePoints = [];
+  List<Map<String, dynamic>> _searchResults = [];
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
-  StreamSubscription<DatabaseEvent>? _requestSubscription;
 
+  // ============================================================
+  // 🟢 VÒNG ĐỜI WIDGET (INIT & DISPOSE)
+  // ============================================================
   @override
   void initState() {
     super.initState();
     _determinePosition();
-    _listenForTripRequests();
+    final uid = _auth.currentUser?.uid;
+    print("🆔 ID TÀI XẾ ĐANG ĐĂNG NHẬP: $uid");// Lấy vị trí hiện tại
+    _listenToTripRequests();   // Bắt đầu lắng nghe cuốc xe từ Firebase
+    _fetchWalletBalance();
   }
 
   @override
   void dispose() {
-    _requestSubscription?.cancel();
     _positionStream?.cancel();
+    _tripRequestSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _listenForTripRequests() {
-    final user = _auth.currentUser;
-    if (user == null) return;
-
-    _requestSubscription = _dbRef.child('drivers/${user.uid}/trip_request').onValue.listen((event) {
-      final data = event.snapshot.value;
-
-      // TRƯỜNG HỢP 1: CÓ REQUEST MỚI
-      if (data != null && !_isDialogShowing) {
-        final requestMap = Map<String, dynamic>.from(data as Map);
-        _isDialogShowing = true; // Đánh dấu đang hiện
-
-        _showTripRequestDialog(requestMap).then((_) {
-          _isDialogShowing = false; // Khi đóng dialog thì reset về false
-        });
-      }
-      // TRƯỜNG HỢP 2: REQUEST BỊ HỦY/MẤT (data == null) MÀ DIALOG ĐANG HIỆN
-      else if (data == null && _isDialogShowing) {
-        Navigator.of(context).pop(); // Đóng dialog ngay lập tức
-      }
-    });
-  }
-  // Cũ: void _showTripRequestDialog(...)
-  // Mới: Thêm Future<void> và return
-  Future<void> _showTripRequestDialog(Map<String, dynamic> request) {
-    return showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        return Container(
-          // ... (giữ nguyên nội dung bên trong)
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ... code giao diện của bạn
-              const Text("🚖 YÊU CẦU CHUYẾN ĐI MỚI", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkGreen)),
-              // ...
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        Navigator.pop(context); // Đóng dialog
-                        _rejectTrip(request['tripId']);
-                      },
-                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
-                      child: const Text("TỪ CHỐI"),
-                    ),
-                  ),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context); // Đóng dialog
-                        _acceptTrip(request['tripId']);
-                      },
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.darkGreen, foregroundColor: Colors.white),
-                      child: const Text("NHẬN CHUYẾN"),
-                    ),
-                  ),
-                ],
-              )
-            ],
-          ),
-        );
-      },
-    );
-  }
-  Future<void> _acceptTrip(String tripId) async {
-    try {
-      // SỬ DỤNG ApiClient: Code chuẩn, tự động lấy baseUrl
-      // POST /trips/{id}/accept
-      final response = await ApiClient().dio.post('/trips/$tripId/accept');
-
-      if (response.statusCode == 200) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Đã nhận chuyến thành công!")),
-          );
-          // TODO: Điều hướng sang màn hình DriverTripScreen tại đây
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Lỗi khi nhận chuyến: $e")),
-        );
-      }
-      print("Lỗi nhận chuyến: $e");
-    }
-  }
-
-  Future<void> _rejectTrip(String tripId) async {
-    try {
-      // SỬ DỤNG ApiClient
-      await ApiClient().dio.post('/trips/$tripId/reject');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Đã từ chối chuyến xe."))
-        );
-      }
-    } catch (e) {
-      print("Lỗi từ chối: $e");
-    }
-  }
-
-
+  // ============================================================
+  // 📍 XỬ LÝ VỊ TRÍ & TRẠNG THÁI ONLINE
+  // ============================================================
   Future<void> _determinePosition() async {
-
     try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
+
       Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       if (mounted) {
         setState(() {
@@ -182,19 +89,213 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
           _isLoading = false;
         });
         _mapController.move(_currentLocation, 16.0);
+
+        // Nếu vào app là tự bật Online luôn (Tùy chọn)
+        _toggleOnline(true);
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+  Future<void> _fetchWalletBalance() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
 
-  // --- [MỚI] LOGIC TÌM ĐỊA ĐIỂM ---
+    try {
+      // Gọi API: GET /api/drivers/profile/{uid}
+      final response = await ApiClient().dio.get('/drivers/profile/$uid');
+
+      if (response.statusCode == 200) {
+        setState(() {
+          // Lấy field 'walletBalance' từ JSON trả về
+          _walletBalance = (response.data['walletBalance'] ?? 0).toDouble();
+        });
+      }
+    } catch (e) {
+      print("Lỗi lấy số dư: $e");
+    }
+  }
+
+  void _toggleOnline([bool? forceState]) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    bool newState = forceState ?? !_isOnline;
+
+    setState(() => _isOnline = newState);
+
+    if (_isOnline) {
+      // Bắt đầu theo dõi vị trí real-time
+      const locationSettings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10);
+      _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) {
+        final newLoc = LatLng(position.latitude, position.longitude);
+        if (mounted) {
+          setState(() => _currentLocation = newLoc);
+          _mapController.move(newLoc, 16.0);
+        }
+        _updateDriverStatusToFirebase(newLoc);
+      });
+    } else {
+      // Tắt theo dõi
+      _positionStream?.cancel();
+      _dbRef.child('drivers/${user.uid}').update({'status': 'OFFLINE'});
+    }
+  }
+
+  void _updateDriverStatusToFirebase(LatLng loc) {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    Map<String, dynamic> updateData = {
+      'lat': loc.latitude,
+      'lng': loc.longitude,
+      'status': 'ONLINE',
+      'last_updated': ServerValue.timestamp,
+    };
+
+    // Nếu có tiện chuyến thì gửi thêm filter
+    if (_convenienceDest != null) {
+      updateData['destination_filter'] = {
+        'lat': _convenienceDest!.latitude,
+        'lng': _convenienceDest!.longitude,
+        'address': _convenienceAddress
+      };
+    } else {
+      updateData['destination_filter'] = null;
+    }
+
+    _dbRef.child('drivers/${user.uid}').update(updateData);
+  }
+
+  // ============================================================
+  // 🚀 LẮNG NGHE YÊU CẦU ĐẶT XE (FIREBASE LISTENER)
+  // ============================================================
+  void _listenToTripRequests() {
+    final String? uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+
+    final ref = _dbRef.child('drivers/$uid/trip_request');
+
+    _tripRequestSubscription = ref.onValue.listen((event) {
+      final data = event.snapshot.value;
+
+      if (data != null && !_isDialogShowing) {
+        // Có khách mới -> Hiện Popup
+        _showRequestDialog(Map<String, dynamic>.from(data as Map));
+      } else if (data == null && _isDialogShowing) {
+        // Khách hủy hoặc đã nhận -> Đóng Popup
+        if (mounted && Navigator.canPop(context)) {
+          Navigator.of(context).pop();
+        }
+        _isDialogShowing = false;
+      }
+    });
+  }
+
+  // ============================================================
+  // 🎨 HIỂN THỊ POPUP NHẬN CHUYẾN
+  // ============================================================
+  void _showRequestDialog(Map<String, dynamic> requestData) {
+    _isDialogShowing = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("🔔 CÓ KHÁCH ĐẶT XE!", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("📍 Đón: ${requestData['pickupAddress']}"),
+            const SizedBox(height: 10),
+            Text("🏁 Đến: ${requestData['destinationAddress']}"),
+            const SizedBox(height: 10),
+            Text("💰 Giá: ${requestData['price']} VNĐ", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            Text("📏 Xa: ${requestData['distance']} km"),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              _rejectTrip(requestData['tripId']);
+              Navigator.of(ctx).pop();
+              _isDialogShowing = false;
+            },
+            child: const Text("Bỏ qua", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.darkGreen, foregroundColor: Colors.white),
+            onPressed: () {
+              _acceptTrip(requestData['tripId'],requestData);
+              Navigator.of(ctx).pop();
+              _isDialogShowing = false;
+            },
+            child: const Text("NHẬN CHUYẾN"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // 🔗 GỌI API BACKEND (ACCEPT / REJECT)
+  // ============================================================
+  Future<void> _acceptTrip(String tripId, Map<String, dynamic> requestData) async {
+    try {
+      // 1. Gọi API nhận chuyến
+      // Sử dụng ApiClient cho chuẩn
+      final response = await ApiClient().dio.post('/trips/$tripId/accept');
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          // 2. Tắt thông báo
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("✅ Đã nhận chuyến! Đang chuyển hướng...")),
+          );
+
+          // 3. CHUYỂN HƯỚNG SANG MÀN HÌNH HÀNH TRÌNH
+          // Trong hàm _acceptTrip, đoạn Navigator.push
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DriverTripScreen(
+                tripId: tripId,
+                tripData: requestData,
+              ),
+            ),
+          ).then((_) {
+            // 👇 THÊM DÒNG NÀY: Khi quay lại từ màn hình Trip -> Gọi API cập nhật tiền ngay
+            _fetchWalletBalance();
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: $e")));
+      }
+    }
+  }
+
+  Future<void> _rejectTrip(String tripId) async {
+    try {
+      await ApiClient().dio.post('/trips/$tripId/reject');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("❌ Đã từ chối.")));
+      }
+    } catch (e) {
+      print("Lỗi từ chối: $e");
+    }
+  }
+
+  // ============================================================
+  // 🛠️ TÍNH NĂNG TIỆN CHUYẾN & TÌM ĐỊA ĐIỂM
+  // ============================================================
   void _onSearchChanged(String query) {
     if (query.isEmpty) {
       setState(() => _searchResults = []);
       return;
     }
-    // Debounce đơn giản
     Future.delayed(const Duration(milliseconds: 500), () async {
       if (_searchController.text != query) return;
       final results = await _placeService.searchPlaces(query);
@@ -202,7 +303,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
     });
   }
 
-  void _selectConvenienceDest(Map<String, dynamic> place) async {
+  void _selectConvenienceDest(Map<String, dynamic> place) {
     FocusScope.of(context).unfocus();
     LatLng dest = LatLng(place['lat'], place['lng']);
 
@@ -214,18 +315,12 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
       _searchController.clear();
     });
 
-    // Vẽ đường từ vị trí xe đến điểm tiện chuyến
     _getRouteToDest(dest);
+    _updateDriverStatusToFirebase(_currentLocation); // Update ngay lên Firebase
 
-    // Cập nhật lên Firebase
-    _updateDriverStatusToFirebase();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("🚗 Đã bật chế độ tiện đường về: $_convenienceAddress"), backgroundColor: Colors.blue)
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("🚗 Tiện đường về: $_convenienceAddress")));
   }
 
-  // --- [MỚI] VẼ ĐƯỜNG VỀ ---
   Future<void> _getRouteToDest(LatLng dest) async {
     String url = 'http://router.project-osrm.org/route/v1/driving/'
         '${_currentLocation.longitude},${_currentLocation.latitude};'
@@ -238,7 +333,6 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
         setState(() {
           _routePoints = coordinates.map((c) => LatLng(c[1], c[0])).toList();
         });
-        // Zoom để thấy cả 2 điểm
         _mapController.fitCamera(CameraFit.bounds(
           bounds: LatLngBounds(_currentLocation, dest),
           padding: const EdgeInsets.all(50),
@@ -255,100 +349,36 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
       _convenienceAddress = "";
       _routePoints = [];
     });
-    _updateDriverStatusToFirebase();
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Đã tắt chế độ tiện đường"), backgroundColor: Colors.grey)
-    );
+    _updateDriverStatusToFirebase(_currentLocation);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã tắt chế độ tiện đường")));
   }
 
-  // --- CẬP NHẬT FIREBASE ---
-  void _updateDriverStatusToFirebase() {
-    final user = _auth.currentUser;
-    if (user == null) return;
-
-    Map<String, dynamic> updateData = {
-      'status': _isOnline ? 'ONLINE' : 'OFFLINE',
-      'last_updated': ServerValue.timestamp,
-    };
-
-    // Nếu đang bật tiện chuyến, gửi thêm thông tin
-    if (_convenienceDest != null) {
-      updateData['destination_filter'] = {
-        'lat': _convenienceDest!.latitude,
-        'lng': _convenienceDest!.longitude,
-        'address': _convenienceAddress
-      };
-    } else {
-      updateData['destination_filter'] = null; // Xóa filter
-    }
-
-    _dbRef.child('drivers/${user.uid}').update(updateData);
-  }
-
-  void _toggleOnline() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
-
-    setState(() => _isOnline = !_isOnline);
-
-    if (_isOnline) {
-      const locationSettings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10);
-      _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) {
-        final newLoc = LatLng(position.latitude, position.longitude);
-        if (mounted) {
-          setState(() => _currentLocation = newLoc);
-          _mapController.move(newLoc, 16.0);
-        }
-
-        // Update cả vị trí + thông tin tiện chuyến (nếu có)
-        Map<String, dynamic> liveUpdate = {
-          'lat': position.latitude,
-          'lng': position.longitude,
-          'angle': position.heading,
-          'status': 'ONLINE',
-          'last_updated': ServerValue.timestamp,
-        };
-        if (_convenienceDest != null) {
-          liveUpdate['destination_filter'] = {
-            'lat': _convenienceDest!.latitude,
-            'lng': _convenienceDest!.longitude,
-            'address': _convenienceAddress
-          };
-        }
-        _dbRef.child('drivers/${user.uid}').update(liveUpdate);
-      });
-    } else {
-      _positionStream?.cancel();
-      _dbRef.child('drivers/${user.uid}').update({'status': 'OFFLINE'});
-    }
-  }
-
+  // ============================================================
+  // 📱 GIAO DIỆN CHÍNH (BUILD)
+  // ============================================================
   Widget _buildHomeTab() {
     return Stack(
       children: [
-        // 1. MAP
+        // 1. BẢN ĐỒ
         FlutterMap(
           mapController: _mapController,
           options: MapOptions(
             initialCenter: _currentLocation,
             initialZoom: 16.0,
-            onTap: (_, __) => setState(() { _isSearching = false; FocusScope.of(context).unfocus(); }), // Ẩn tìm kiếm khi chạm map
+            onTap: (_, __) => setState(() { _isSearching = false; FocusScope.of(context).unfocus(); }),
           ),
           children: [
             TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
-            // Vẽ đường tiện chuyến (Màu cam để phân biệt)
             if (_routePoints.isNotEmpty)
               PolylineLayer(polylines: [
                 Polyline(points: _routePoints, strokeWidth: 4.0, color: Colors.orangeAccent),
               ]),
             MarkerLayer(
               markers: [
-                // Marker Xe
                 Marker(
                   point: _currentLocation, width: 60, height: 60,
                   child: const Icon(Icons.directions_car, color: AppColors.darkGreen, size: 40),
                 ),
-                // Marker Điểm tiện chuyến
                 if (_convenienceDest != null)
                   Marker(
                     point: _convenienceDest!, width: 50, height: 50,
@@ -359,12 +389,12 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
           ],
         ),
 
-        // 2. SEARCH BAR & STATUS (Header)
+        // 2. THANH TRẠNG THÁI & TÌM KIẾM
         Positioned(
           top: 50, left: 15, right: 15,
           child: Column(
             children: [
-              // Thanh trạng thái Online
+              // Trạng thái Online/Offline
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30), boxShadow: [const BoxShadow(color: Colors.black12, blurRadius: 10)]),
@@ -379,7 +409,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
 
               const SizedBox(height: 10),
 
-              // [MỚI] Thanh tiện đường (Hiển thị khi đang Set hoặc bấm tìm kiếm)
+              // Tìm kiếm tiện chuyến
               if (_isSearching || _convenienceDest != null)
                 Container(
                   decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), boxShadow: [const BoxShadow(color: Colors.black12, blurRadius: 10)]),
@@ -405,7 +435,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
                           trailing: IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: _cancelConvenienceMode),
                         ),
 
-                      // List kết quả tìm kiếm
+                      // Kết quả tìm kiếm
                       if (_searchResults.isNotEmpty && _convenienceDest == null)
                         Container(
                           constraints: const BoxConstraints(maxHeight: 200),
@@ -426,7 +456,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
           ),
         ),
 
-        // 3. NÚT KÍCH HOẠT TIỆN CHUYẾN (Góc dưới trái)
+        // 3. NÚT CHỨC NĂNG
         if (!_isSearching && _convenienceDest == null)
           Positioned(
             bottom: 100, left: 20,
@@ -439,7 +469,6 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
             ),
           ),
 
-        // 4. Nút về vị trí (Góc dưới phải)
         Positioned(
           bottom: 20, right: 20,
           child: FloatingActionButton(
@@ -453,8 +482,33 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
     );
   }
 
-  // (Giữ nguyên các tab Earnings và Profile như cũ)
-  Widget _buildEarningsTab() => const Center(child: Text("Thu nhập"));
+  Widget _buildEarningsTab() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.account_balance_wallet, size: 80, color: AppColors.darkGreen),
+          const SizedBox(height: 20),
+          const Text("Thu nhập hiện tại", style: TextStyle(fontSize: 18, color: Colors.grey)),
+          const SizedBox(height: 10),
+
+          // Hiển thị số tiền từ biến _walletBalance
+          Text(
+            "${_walletBalance.toStringAsFixed(0)} VNĐ", // Format số nguyên
+            style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.black),
+          ),
+
+          const SizedBox(height: 30),
+          ElevatedButton.icon(
+            onPressed: _fetchWalletBalance, // Bấm để làm mới số tiền
+            icon: const Icon(Icons.refresh),
+            label: const Text("Cập nhật số dư"),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.darkGreen, foregroundColor: Colors.white),
+          )
+        ],
+      ),
+    );
+  }
   Widget _buildProfileTab() => Center(
       child: ElevatedButton(onPressed: () async { await AuthService().signOut(); Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen())); }, child: const Text("Đăng xuất"))
   );
@@ -462,7 +516,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      resizeToAvoidBottomInset: false, // Tránh vỡ layout khi hiện bàn phím
+      resizeToAvoidBottomInset: false,
       body: _isLoading ? const Center(child: CircularProgressIndicator()) : [_buildHomeTab(), _buildEarningsTab(), _buildProfileTab()][_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,

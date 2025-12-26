@@ -9,4 +9,8 @@ public interface TripService {
     Trip getTrip(String id);
     // Trong Interface TripService
     Trip getDriverCurrentTrip(String driverId);
+    // File: com.smarttaxi.taxi_api.service.TripService
+    Trip driverArriveAtPickup(String tripId);
+    Trip driverStartTrip(String tripId);
+    Trip driverCompleteTrip(String tripId);
 }

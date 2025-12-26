@@ -24,12 +24,12 @@ public class Driver {
     private String vehiclePlate;  // Khớp với setVehiclePlate
     private String vehicleBrand;  // Khớp với setVehicleBrand
     // --------------------------------------------------
-
+    
     private String name;
     private String phone;
     private String vehicleType; 
     private boolean isOnline;   
-    
+    private Double walletBalance = 0.0;
     // Đã thêm ở bước trước (nếu chưa có thì thêm luôn)
     private Double rating = 5.0;          
     private Double acceptanceRate = 1.0;

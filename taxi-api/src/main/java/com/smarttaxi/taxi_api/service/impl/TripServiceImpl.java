@@ -1,11 +1,8 @@
 package com.smarttaxi.taxi_api.service.impl;
 
 import java.time.LocalTime;
-import java.util.Comparator;
 import java.util.List;
 
-import org.springframework.data.geo.Distance;
-import org.springframework.data.geo.Metrics;
 import org.springframework.data.geo.Point;
 import org.springframework.data.mongodb.core.geo.GeoJsonPoint;
 import org.springframework.stereotype.Service;
@@ -57,32 +54,36 @@ public class TripServiceImpl implements TripService {
     private final PriceConfigRepository priceConfigRepository;
     private final FirebaseService firebaseService;
 
+
     @Override
     public Trip createTrip(TripRequest request) {
-        
-
-        // 1. Lấy tọa độ đón
+        // 1. Lấy tọa độ đón (Giữ nguyên logic)
         Point pickupPoint = new Point(request.getPickupLongitude(), request.getPickupLatitude());
         
-        // 2. Tìm tài xế Online trong bán kính 3km, rating >= 3.0
-        Distance radius = new Distance(5000, Metrics.KILOMETERS);
-        List<Driver> candidates = driverRepository.findByIsOnlineTrueAndLocationNearAndRatingGreaterThanEqual(
-                pickupPoint, radius, 3.0
-        );
+        // =========================================================================
+        // 🔴 BẮT ĐẦU ĐOẠN "FIX CỨNG" (HARDCODE)
+        // Thay vì tìm theo bán kính/online, ta lấy TẤT CẢ tài xế trong DB
+        // =========================================================================
+        
+        List<Driver> candidates = driverRepository.findAll();
 
         if (candidates.isEmpty()) {
-            throw new RuntimeException("Không tìm thấy tài xế phù hợp gần bạn!");
+            throw new RuntimeException("❌ Lỗi Demo: Database rỗng! Hãy tạo ít nhất 1 tài xế.");
         }
 
-        // 3. THUẬT TOÁN SCORING: Chọn tài xế tốt nhất
-        // Công thức: Điểm = (Rating * 4) + (Tỷ lệ nhận * 2)
-        // (Đây là logic đơn giản hóa, thực tế có thể phức tạp hơn)
-        Driver bestDriver = candidates.stream()
-            .max(Comparator.comparingDouble(this::calculateDriverScore))
-            .orElse(candidates.get(0));
+        // 👉 LẤY LUÔN TÀI XẾ ĐẦU TIÊN TÌM THẤY (Bất chấp vị trí, trạng thái)
+        Driver bestDriver = candidates.get(0);
 
-        // 4. TÍNH GIÁ TIỀN (DYNAMIC PRICING)
-        // Tính khoảng cách ước lượng (Code thực tế nên dùng Google Maps API để chính xác)
+        // In log ra console server để bạn biết nó đang bắt vào tài xế nào
+        System.out.println("🔥 DEMO MODE ACTIVATED 🔥");
+        System.out.println("✅ Đã bắt dính tài xế: " + bestDriver.getName());
+        System.out.println("🆔 Driver ID: " + bestDriver.getId());
+        
+        // =========================================================================
+        // 🔴 KẾT THÚC ĐOẠN FIX CỨNG
+        // =========================================================================
+
+        // 4. TÍNH GIÁ TIỀN (Giữ nguyên logic cũ)
         double estimatedKm = calculateDistanceKm(
             request.getPickupLatitude(), request.getPickupLongitude(),
             request.getDestinationLatitude(), request.getDestinationLongitude()
@@ -90,25 +91,30 @@ public class TripServiceImpl implements TripService {
         
         double finalPrice = calculateDynamicPrice(request.getVehicleType(), estimatedKm);
 
-        // 5. Tạo chuyến đi
+        // 5. Tạo chuyến đi và lưu xuống DB
         Trip newTrip = new Trip();
         newTrip.setDriverId(bestDriver.getId());
-        newTrip.setCustomerId(request.getCustomerId()); // Giả sử request có field này
+        newTrip.setCustomerId(request.getCustomerId());
         newTrip.setPickupLocation(new GeoJsonPoint(request.getPickupLongitude(), request.getPickupLatitude()));
         newTrip.setDestinationLocation(new GeoJsonPoint(request.getDestinationLongitude(), request.getDestinationLatitude()));
         newTrip.setPickupAddress(request.getPickupAddress());
         newTrip.setDestinationAddress(request.getDestinationAddress());
         
-        // Set giá và trạng thái
         newTrip.setDistance(estimatedKm);
         newTrip.setPrice(finalPrice);
-        newTrip.setStatus(TripStatus.PENDING); // Hoặc WAITING_DRIVER tùy flow
+        newTrip.setStatus(TripStatus.PENDING); 
+        
         Trip savedTrip = tripRepository.save(newTrip);
-        firebaseService.notifyDriverNewTrip(bestDriver.getId(), savedTrip);
-
+        
+        // Gửi thông báo sang máy tài xế đó
+        if (bestDriver.getFirebaseId() != null) {
+            firebaseService.notifyDriverNewTrip(bestDriver.getFirebaseId(), savedTrip);
+            System.out.println("📨 Đã gửi tin nhắn tới Firebase ID: " + bestDriver.getFirebaseId());
+        } else {
+            System.out.println("❌ LỖI: Tài xế này chưa có Firebase ID! Hãy cập nhật DB ngay.");
+        }
         return savedTrip;
     }
-
     // --- Helper: Tính điểm tài xế ---
 
     private double calculateDriverScore(Driver driver) {
@@ -170,5 +176,61 @@ public class TripServiceImpl implements TripService {
     @Override
     public Trip getTrip(String id) {
         return tripRepository.findById(id).orElse(null);
+    }
+    // File: com.smarttaxi.taxi_api.service.impl.TripServiceImpl
+
+    @Override
+    public Trip driverArriveAtPickup(String tripId) {
+        Trip trip = tripRepository.findById(tripId).orElseThrow(() -> new RuntimeException("Trip not found"));
+        // Cập nhật trạng thái: Đã đến điểm đón
+        trip.setStatus(TripStatus.DRIVER_ARRIVED);
+        return tripRepository.save(trip);
+    }
+
+    @Override
+    public Trip driverStartTrip(String tripId) {
+        Trip trip = tripRepository.findById(tripId).orElseThrow();
+        // Cập nhật trạng thái: Đang chở khách
+        trip.setStatus(TripStatus.ONGOING);
+        return tripRepository.save(trip);
+    }
+
+    // File: com.smarttaxi.taxi_api.service.impl.TripServiceImpl.java
+
+    @Override
+    public Trip driverCompleteTrip(String tripId) {
+        // 1. Tìm chuyến đi
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy chuyến đi: " + tripId));
+
+        // 2. Tìm tài xế
+        Driver driver = driverRepository.findById(trip.getDriverId())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy tài xế!"));
+
+        // 3. TÍNH TOÁN THU NHẬP (TRỪ 20% PHÍ DỊCH VỤ)
+        double totalPrice = trip.getPrice();           // Tổng tiền khách trả (Ví dụ: 100.000đ)
+        double serviceFee = totalPrice * 0.20;         // Phí sàn 20% (20.000đ)
+        double driverIncome = totalPrice - serviceFee; // Tài xế nhận 80% (80.000đ)
+
+        // 4. Cộng tiền vào ví
+        if (driver.getWalletBalance() == null) {
+            driver.setWalletBalance(0.0);
+        }
+        double currentBalance = driver.getWalletBalance();
+        driver.setWalletBalance(currentBalance + driverIncome);
+
+        // 5. Lưu thông tin tài xế
+        driverRepository.save(driver);
+
+        // In log để kiểm tra (Debug)
+        System.out.println("✅ HOÀN THÀNH CUỐC XE: " + tripId);
+        System.out.println("💵 Tổng thu: " + totalPrice + " VNĐ");
+        System.out.println("📉 Phí sàn (20%): -" + serviceFee + " VNĐ");
+        System.out.println("💰 Cộng ví tài xế: +" + driverIncome + " VNĐ");
+        System.out.println("💳 Số dư ví mới: " + driver.getWalletBalance() + " VNĐ");
+
+        // 6. Cập nhật trạng thái chuyến đi và lưu
+        trip.setStatus(TripStatus.COMPLETED);
+        return tripRepository.save(trip);
     }
 }

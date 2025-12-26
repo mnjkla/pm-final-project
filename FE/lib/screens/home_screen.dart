@@ -4,7 +4,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:dio/dio.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // [MỚI] Thêm thư viện Auth
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart'; // ✅ ĐƯA LÊN ĐÂY CHO CHUẨN
 
 import '../core/app_colors.dart';
 import '../services/driver_service.dart';
@@ -12,6 +13,7 @@ import '../models/driver_model.dart';
 import '../services/place_service.dart';
 import '../payload/request/trip_request.dart';
 import '../services/trip_service.dart';
+import 'trip_tracking_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,7 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TripService _tripService = TripService();
   final MapController _mapController = MapController();
   final Dio _dio = Dio();
-  final FirebaseAuth _auth = FirebaseAuth.instance; // [MỚI] Instance Auth
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   // Controllers
   final TextEditingController _pickupController = TextEditingController();
@@ -89,7 +91,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _centerMapPosition = currentPos;
         _pickupLocation = currentPos;
         _isLoading = false;
-        // Lần đầu vào app thì cho phép Auto Zoom và lấy địa chỉ
         _getAddressFromLatLng(currentPos, isPickup: true, autoZoom: true);
       });
       _mapController.move(_centerMapPosition, 16.0);
@@ -244,7 +245,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _onBookTrip() async {
     if (_pickupLocation == null) return;
 
-    // [FIX] Kiểm tra đăng nhập để lấy ID khách hàng
     final User? user = _auth.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -256,7 +256,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isLoading = true);
 
     final request = TripRequest(
-      customerId: user.uid, // [FIX] Truyền ID khách hàng vào đây
+      customerId: user.uid,
       pickupLatitude: _pickupLocation!.latitude,
       pickupLongitude: _pickupLocation!.longitude,
       pickupAddress: _pickupController.text,
@@ -267,7 +267,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
+      // 1. Gọi API đặt xe
       final trip = await _tripService.bookTrip(request);
+
       if (mounted) {
         FocusScope.of(context).unfocus();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -277,7 +279,11 @@ class _HomeScreenState extends State<HomeScreen> {
               duration: const Duration(seconds: 5),
             )
         );
-        // Có thể navigate sang màn hình Tracking ở đây
+
+        // ✅ SỬA LỖI: Gọi hàm lắng nghe NGAY TẠI ĐÂY (trong khi biến trip còn tồn tại)
+        if (trip.id != null) {
+          _listenForDriverAccept(trip.id!);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -288,6 +294,24 @@ class _HomeScreenState extends State<HomeScreen> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _listenForDriverAccept(String tripId) {
+    // Lắng nghe node trips/{tripId} trên Firebase
+    FirebaseDatabase.instance.ref('trips/$tripId').onValue.listen((event) {
+      final data = event.snapshot.value as Map?;
+      if (data != null && data['status'] == 'ACCEPTED') {
+        if (mounted) {
+          Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => TripTrackingScreen(
+                tripId: tripId,
+                driverId: data['driverId'],
+              ))
+          );
+        }
+      }
+    });
   }
 
   @override
@@ -446,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     width: double.infinity,
                     height: 50,
                     child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.primaryGreen, foregroundColor: Colors.white),
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.darkGreen, foregroundColor: Colors.white),
                       onPressed: (_routePoints.isEmpty) ? null : _onBookTrip,
                       child: const Text("ĐẶT XE NGAY", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
@@ -475,11 +499,11 @@ class _HomeScreenState extends State<HomeScreen> {
         Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: isSelected ? AppColors.primaryGreen.withOpacity(0.2) : Colors.grey[100],
+              color: isSelected ? AppColors.darkGreen.withOpacity(0.2) : Colors.grey[100],
               shape: BoxShape.circle,
-              border: isSelected ? Border.all(color: AppColors.primaryGreen, width: 2) : null,
+              border: isSelected ? Border.all(color: AppColors.darkGreen, width: 2) : null,
             ),
-            child: Icon(icon, color: isSelected ? AppColors.primaryGreen : Colors.grey, size: 28)
+            child: Icon(icon, color: isSelected ? AppColors.darkGreen : Colors.grey, size: 28)
         ),
         const SizedBox(height: 5),
         Text(label, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isSelected ? Colors.black : Colors.grey)),

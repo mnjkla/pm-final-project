@@ -45,4 +45,23 @@ public class TripController {
     public ResponseEntity<Trip> getTrip(@PathVariable String id) {
         return ResponseEntity.ok(tripService.getTrip(id));
     }
+    // File: com.smarttaxi.taxi_api.web.TripController
+
+    // Tài xế báo đã đến điểm đón
+    @PostMapping("/{id}/arrive")
+    public ResponseEntity<Trip> arriveTrip(@PathVariable String id) {
+        return ResponseEntity.ok(tripService.driverArriveAtPickup(id));
+    }
+
+    // Tài xế báo bắt đầu chở khách
+    @PostMapping("/{id}/start")
+    public ResponseEntity<Trip> startTrip(@PathVariable String id) {
+        return ResponseEntity.ok(tripService.driverStartTrip(id));
+    }
+
+    // Tài xế báo hoàn thành
+    @PostMapping("/{id}/complete")
+    public ResponseEntity<Trip> completeTrip(@PathVariable String id) {
+        return ResponseEntity.ok(tripService.driverCompleteTrip(id));
+    }
 }

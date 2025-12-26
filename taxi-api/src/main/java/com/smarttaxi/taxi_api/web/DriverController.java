@@ -7,7 +7,9 @@ import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.Metrics;
 import org.springframework.data.geo.Point;
 import org.springframework.data.mongodb.core.geo.GeoJsonPoint;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping; // Import thêm cái này
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,5 +47,11 @@ public class DriverController {
         Point currentLocation = new Point(lng, lat);
         Distance radius = new Distance(5, Metrics.KILOMETERS); 
         return driverRepository.findByLocationNear(currentLocation, radius);
+    }
+    @GetMapping("/profile/{firebaseId}")
+    public ResponseEntity<Driver> getDriverProfile(@PathVariable String firebaseId) {
+        return driverRepository.findByFirebaseId(firebaseId)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 }
