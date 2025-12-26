@@ -134,22 +134,38 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
   }
   Future<void> _acceptTrip(String tripId) async {
     try {
-      // Gọi API Backend: POST /api/trips/{id}/accept
-      // Lưu ý: Thay ApiClient().dio bằng instance Dio của bạn
-      final response = await Dio().post('http://192.168.100.240:8080/api/trips/$tripId/accept');
-      print("LOG: Đang gọi API: $url");
+      // SỬ DỤNG ApiClient: Code chuẩn, tự động lấy baseUrl
+      // POST /trips/{id}/accept
+      final response = await ApiClient().dio.post('/trips/$tripId/accept');
+
       if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã nhận chuyến thành công!")));
-        // Điều hướng sang màn hình đón khách (DriverTripScreen)
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Đã nhận chuyến thành công!")),
+          );
+          // TODO: Điều hướng sang màn hình DriverTripScreen tại đây
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Lỗi khi nhận chuyến: $e")),
+        );
+      }
+      print("Lỗi nhận chuyến: $e");
     }
   }
 
   Future<void> _rejectTrip(String tripId) async {
     try {
-      await Dio().post('http://192.168.100.240:8080/api/trips/$tripId/reject');
+      // SỬ DỤNG ApiClient
+      await ApiClient().dio.post('/trips/$tripId/reject');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Đã từ chối chuyến xe."))
+        );
+      }
     } catch (e) {
       print("Lỗi từ chối: $e");
     }

@@ -65,7 +65,7 @@ public class TripServiceImpl implements TripService {
         Point pickupPoint = new Point(request.getPickupLongitude(), request.getPickupLatitude());
         
         // 2. Tìm tài xế Online trong bán kính 3km, rating >= 3.0
-        Distance radius = new Distance(3, Metrics.KILOMETERS);
+        Distance radius = new Distance(5000, Metrics.KILOMETERS);
         List<Driver> candidates = driverRepository.findByIsOnlineTrueAndLocationNearAndRatingGreaterThanEqual(
                 pickupPoint, radius, 3.0
         );

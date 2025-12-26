@@ -7,13 +7,19 @@ class TripService {
   // Dùng Dio từ ApiClient để có chung cấu hình (IP, Timeout...)
   final Dio _dio = ApiClient().dio;
 
+  // File: FE/lib/services/trip_service.dart
+
   Future<Trip> bookTrip(TripRequest request) async {
     try {
-      print("🚀 Đang gọi API: ${_dio.options.baseUrl}/trips/book");
+      // SỬA LỖI: Đổi endpoint từ '/trips/book' thành '/trips/create'
+      // Backend mapping: @PostMapping("/create") bên trong @RequestMapping("/api/trips")
+      final String endpoint = '/trips/create';
+
+      print("🚀 Đang gọi API: ${_dio.options.baseUrl}$endpoint");
       print("📦 Dữ liệu gửi: ${request.toJson()}");
 
       final response = await _dio.post(
-        '/trips/book', // Không cần gõ lại baseUrl
+        endpoint,
         data: request.toJson(),
       );
 
@@ -25,11 +31,12 @@ class TripService {
         throw Exception('Lỗi Server: ${response.statusCode}');
       }
     } on DioException catch (e) {
-      // Xử lý lỗi chi tiết hơn từ Dio
       if (e.type == DioExceptionType.connectionTimeout) {
         throw Exception('⏱️ Hết thời gian kết nối (Timeout). Kiểm tra Server!');
       } else if (e.type == DioExceptionType.connectionError) {
         throw Exception('🔌 Không thể kết nối tới Server. Kiểm tra IP/Firewall!');
+      } else if (e.response?.statusCode == 405) {
+        throw Exception('❌ Lỗi 405: Sai đường dẫn API hoặc phương thức (POST/GET)!');
       }
       throw Exception('Lỗi: ${e.message}');
     } catch (e) {

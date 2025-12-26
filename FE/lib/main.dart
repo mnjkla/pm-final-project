@@ -27,7 +27,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       // ... theme
       // Sửa home thành LoginScreen (không cần tham số)
-      home: const RoleSelectionScreen(),
+      home: const LoginScreen(),
     );
   }
 }
