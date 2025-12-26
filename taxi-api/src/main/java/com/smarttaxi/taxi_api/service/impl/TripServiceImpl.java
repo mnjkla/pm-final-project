@@ -25,6 +25,31 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class TripServiceImpl implements TripService {
+    // Trong Class TripServiceImpl
+
+ 
+    @Override
+    public Trip getDriverCurrentTrip(String driverId) {
+        // Lấy danh sách chuyến của tài xế
+        List<Trip> trips = tripRepository.findByDriverId(driverId);
+        if (trips.isEmpty()) return null;
+        
+        // Sắp xếp lấy chuyến mới nhất
+        trips.sort((t1, t2) -> t2.getCreatedAt().compareTo(t1.getCreatedAt()));
+        Trip latestTrip = trips.get(0);
+
+        // 👇 SỬA ĐOẠN NÀY: Kiểm tra 3 trạng thái đang hoạt động
+        // DRIVER_ACCEPTED: Tài xế đã nhận, đang đến đón
+        // DRIVER_ARRIVED: Tài xế đã đến điểm đón
+        // ONGOING: Đang chở khách
+        if (latestTrip.getStatus() == TripStatus.DRIVER_ACCEPTED || 
+            latestTrip.getStatus() == TripStatus.DRIVER_ARRIVED ||
+            latestTrip.getStatus() == TripStatus.ONGOING) {
+            return latestTrip;
+        }
+        
+        return null;
+    }
 
     private final TripRepository tripRepository;
     private final DriverRepository driverRepository;
@@ -81,7 +106,7 @@ public class TripServiceImpl implements TripService {
     // --- Helper: Tính điểm tài xế ---
     // --- Helper: Tính điểm tài xế ---
     private double calculateDriverScore(Driver driver) {
-        // Sử dụng equals thay vì unboxing trực tiếp để tránh Null Pointer
+        
         double ratingScore = (driver.getRating() == null) ? 5.0 : driver.getRating();
         double acceptanceScore = (driver.getAcceptanceRate() == null) ? 1.0 : driver.getAcceptanceRate();
         

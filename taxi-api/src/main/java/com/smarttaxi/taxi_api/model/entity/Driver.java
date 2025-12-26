@@ -17,35 +17,33 @@ import lombok.NoArgsConstructor;
 public class Driver {
     
     @Id
-    private String id;
-    
-    // --- Các trường bị thiếu gây lỗi setFirebaseId ---
-    private String firebaseId; 
-    
+    private String id; 
+
+    // --- 👇 THÊM CÁC TRƯỜNG CÒN THIẾU VÀO ĐÂY 👇 ---
+    private String firebaseId;    // Khớp với setFirebaseId
+    private String vehiclePlate;  // Khớp với setVehiclePlate
+    private String vehicleBrand;  // Khớp với setVehicleBrand
+    // --------------------------------------------------
+
     private String name;
     private String phone;
-    
-    // --- Các trường bị thiếu gây lỗi setVehiclePlate, setVehicleBrand ---
-    private String vehicleType;  // BIKE, CAR_4, CAR_7
-    private String vehiclePlate; // Biển số
-    private String vehicleBrand; // Hãng xe (Honda, Toyota...)
-
+    private String vehicleType; 
     private boolean isOnline;   
-
-    // --- Các trường dùng cho tính điểm (Scoring) ---
+    
+    // Đã thêm ở bước trước (nếu chưa có thì thêm luôn)
     private Double rating = 5.0;          
-    private Double acceptanceRate = 1.0;  
-    private Integer totalTrips = 0;       
+    private Double acceptanceRate = 1.0;
 
     @GeoSpatialIndexed(type = GeoSpatialIndexType.GEO_2DSPHERE)
     private GeoJsonPoint location;
 
-    // Constructor phục vụ test
     public Driver(String name, String phone, double longitude, double latitude) {
         this.name = name;
         this.phone = phone;
         this.isOnline = true;
         this.vehicleType = "BIKE";
+        this.rating = 5.0;
+        this.acceptanceRate = 1.0;
         this.location = new GeoJsonPoint(longitude, latitude);
     }
 }

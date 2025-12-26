@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Bắt buộc thêm dòng này để bắt lỗi FirebaseAuthException
 import '../services/auth_service.dart';
-import 'main_screen.dart';        // Màn hình Khách
+import 'home_screen.dart';        // Màn hình Khách
 import 'driver_main_screen.dart'; // Màn hình Tài xế
 import 'role_selection_screen.dart'; // Màn hình chọn vai trò (cho user mới)
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key}); // Không cần tham số role nữa
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -19,17 +20,17 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoginMode = true;
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController();
+  // final TextEditingController _nameController = TextEditingController(); // Tạm không dùng ở màn hình này
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
+    // _nameController.dispose();
     super.dispose();
   }
 
-  // --- HÀM XỬ LÝ QUAN TRỌNG NHẤT: PHÂN QUYỀN ---
+  // --- HÀM XỬ LÝ: PHÂN QUYỀN SAU KHI ĐĂNG NHẬP ---
   Future<void> _handlePostLogin() async {
     if (!mounted) return;
     // Vẫn giữ loading để người dùng đợi kiểm tra Role
@@ -37,7 +38,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       // 1. Hỏi Backend: "Tôi là ai?"
-      final profile = await _authService.fetchUserProfile();
+      final profile = await _authService.fetchUserProfile(); //
       final String role = profile['role']; // DRIVER, PASSENGER, hoặc NEW
 
       if (!mounted) return;
@@ -48,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverMainScreen()));
       } else if (role == 'PASSENGER') {
         print("Xin chào Khách hàng!");
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainScreen()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
       } else {
         // role == 'NEW' -> Chưa có trong DB -> Sang màn chọn vai trò để đăng ký
         print("Người dùng mới -> Chuyển sang chọn vai trò");
@@ -56,7 +57,11 @@ class _LoginScreenState extends State<LoginScreen> {
       }
 
     } catch (e) {
-      _showError("Lỗi kiểm tra hồ sơ: $e");
+      // Nếu lỗi fetch profile, có thể do chưa sync -> coi là NEW hoặc báo lỗi
+      print("Lỗi lấy hồ sơ: $e");
+      // Trường hợp này thường xảy ra khi user mới đăng ký bằng Email nhưng chưa kịp sync
+      // Chúng ta sẽ đẩy sang RoleSelectionScreen để họ làm lại quy trình sync
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const RoleSelectionScreen()));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -66,11 +71,11 @@ class _LoginScreenState extends State<LoginScreen> {
   void _handleGoogleLogin() async {
     setState(() => _isLoading = true);
     try {
-      final user = await _authService.signInWithGoogle();
+      final user = await _authService.signInWithGoogle(); //
       if (user != null) {
         await _handlePostLogin(); // Đăng nhập xong -> Gọi hàm phân quyền
       } else {
-        setState(() => _isLoading = false); // User hủy
+        setState(() => _isLoading = false); // User hủy chọn Google
       }
     } catch (e) {
       _showError("Lỗi Google: $e");
@@ -78,31 +83,57 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // --- Xử lý Email/Pass ---
+  // --- Xử lý Email/Pass (Đã cập nhật xử lý lỗi chi tiết) ---
   void _handleEmailAuth() async {
     setState(() => _isLoading = true);
     try {
       if (_isLoginMode) {
         // Đăng nhập
-        await _authService.signInWithEmail(_emailController.text, _passwordController.text);
+        await _authService.signInWithEmail(
+            _emailController.text.trim(),
+            _passwordController.text.trim()
+        ); //
+
         await _handlePostLogin();
       } else {
         // Đăng ký tài khoản Firebase trước
-        await _authService.signUpWithEmail(_emailController.text, _passwordController.text);
-        // Đăng ký xong thì chắc chắn là User mới -> Sang màn chọn vai trò luôn
+        await _authService.signUpWithEmail(
+            _emailController.text.trim(),
+            _passwordController.text.trim()
+        ); //
+
+        // Đăng ký thành công -> Chuyển sang màn hình chọn vai trò
         if (mounted) {
           Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const RoleSelectionScreen()));
         }
       }
+    } on FirebaseAuthException catch (e) {
+      // Bắt riêng lỗi Firebase để hiển thị tiếng Việt rõ ràng
+      String msg = "Lỗi xác thực";
+      if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+        msg = "Tài khoản không tồn tại hoặc sai mật khẩu.";
+      } else if (e.code == 'wrong-password') {
+        msg = "Sai mật khẩu.";
+      } else if (e.code == 'email-already-in-use') {
+        msg = "Email này đã được đăng ký rồi.";
+      } else if (e.code == 'invalid-email') {
+        msg = "Định dạng email không hợp lệ.";
+      } else if (e.code == 'weak-password') {
+        msg = "Mật khẩu quá yếu (cần ít nhất 6 ký tự).";
+      }
+      _showError(msg);
+      setState(() => _isLoading = false);
     } catch (e) {
-      _showError("Lỗi xác thực: $e");
+      _showError("Lỗi không xác định: $e");
       setState(() => _isLoading = false);
     }
   }
 
   void _showError(String msg) {
     if(!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.red));
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red)
+    );
   }
 
   @override
@@ -123,13 +154,24 @@ class _LoginScreenState extends State<LoginScreen> {
               // Form Email
               TextField(
                 controller: _emailController,
-                decoration: const InputDecoration(labelText: "Email", prefixIcon: Icon(Icons.email), border: OutlineInputBorder()),
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                    labelText: "Email",
+                    prefixIcon: Icon(Icons.email),
+                    border: OutlineInputBorder()
+                ),
               ),
               const SizedBox(height: 15),
+
+              // Form Password
               TextField(
                 controller: _passwordController,
                 obscureText: true,
-                decoration: const InputDecoration(labelText: "Mật khẩu", prefixIcon: Icon(Icons.lock), border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                    labelText: "Mật khẩu",
+                    prefixIcon: Icon(Icons.lock),
+                    border: OutlineInputBorder()
+                ),
               ),
               const SizedBox(height: 25),
 
@@ -142,7 +184,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : Text(_isLoginMode ? "ĐĂNG NHẬP" : "ĐĂNG KÝ NGAY", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      : Text(
+                      _isLoginMode ? "ĐĂNG NHẬP" : "ĐĂNG KÝ NGAY",
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)
+                  ),
                 ),
               ),
 
