@@ -106,7 +106,7 @@ public class TripServiceImpl implements TripService {
         Trip savedTrip = tripRepository.save(newTrip);
         firebaseService.notifyDriverNewTrip(bestDriver.getId(), savedTrip);
 
-        return tripRepository.save(newTrip);
+        return savedTrip;
     }
 
     // --- Helper: Tính điểm tài xế ---

@@ -21,6 +21,7 @@ class DriverMainScreen extends StatefulWidget {
 }
 
 class _DriverMainScreenState extends State<DriverMainScreen> {
+  bool _isDialogShowing = false;
   int _selectedIndex = 0;
 
   final MapController _mapController = MapController();
@@ -63,23 +64,28 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
     final user = _auth.currentUser;
     if (user == null) return;
 
-    // Lắng nghe node: drivers/{uid}/trip_request
     _requestSubscription = _dbRef.child('drivers/${user.uid}/trip_request').onValue.listen((event) {
       final data = event.snapshot.value;
-      if (data != null) {
-        // Có request mới -> Hiện thông báo (Dialog hoặc BottomSheet)
+
+      // TRƯỜNG HỢP 1: CÓ REQUEST MỚI
+      if (data != null && !_isDialogShowing) {
         final requestMap = Map<String, dynamic>.from(data as Map);
-        _showTripRequestDialog(requestMap);
-      } else {
-        // Request bị xóa (do đã nhận/từ chối hoặc user hủy) -> Đóng Dialog nếu đang mở
-        if (Navigator.canPop(context)) {
-          // Có thể check xem dialog nào đang mở để pop cho chính xác
-        }
+        _isDialogShowing = true; // Đánh dấu đang hiện
+
+        _showTripRequestDialog(requestMap).then((_) {
+          _isDialogShowing = false; // Khi đóng dialog thì reset về false
+        });
+      }
+      // TRƯỜNG HỢP 2: REQUEST BỊ HỦY/MẤT (data == null) MÀ DIALOG ĐANG HIỆN
+      else if (data == null && _isDialogShowing) {
+        Navigator.of(context).pop(); // Đóng dialog ngay lập tức
       }
     });
   }
-  void _showTripRequestDialog(Map<String, dynamic> request) {
-    showModalBottomSheet(
+  // Cũ: void _showTripRequestDialog(...)
+  // Mới: Thêm Future<void> và return
+  Future<void> _showTripRequestDialog(Map<String, dynamic> request) {
+    return showModalBottomSheet(
       context: context,
       isDismissible: false,
       enableDrag: false,
@@ -87,33 +93,14 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
         return Container(
+          // ... (giữ nguyên nội dung bên trong)
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // ... code giao diện của bạn
               const Text("🚖 YÊU CẦU CHUYẾN ĐI MỚI", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkGreen)),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.my_location, color: Colors.blue),
-                title: const Text("Điểm đón"),
-                subtitle: Text(request['pickupAddress'] ?? "Không xác định", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-              ),
-              ListTile(
-                leading: const Icon(Icons.location_on, color: Colors.red),
-                title: const Text("Điểm đến"),
-                subtitle: Text(request['destinationAddress'] ?? "Không xác định", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    Text("${(request['distance'] ?? 0).toStringAsFixed(1)} km", style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text("${(request['price'] ?? 0).toStringAsFixed(0)} đ", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 10),
+              // ...
               Row(
                 children: [
                   Expanded(
@@ -149,8 +136,8 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
     try {
       // Gọi API Backend: POST /api/trips/{id}/accept
       // Lưu ý: Thay ApiClient().dio bằng instance Dio của bạn
-      final response = await Dio().post('http://10.0.2.2:8080/api/trips/$tripId/accept');
-
+      final response = await Dio().post('http://192.168.100.240:8080/api/trips/$tripId/accept');
+      print("LOG: Đang gọi API: $url");
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã nhận chuyến thành công!")));
         // Điều hướng sang màn hình đón khách (DriverTripScreen)
@@ -162,7 +149,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
 
   Future<void> _rejectTrip(String tripId) async {
     try {
-      await Dio().post('http://10.0.2.2:8080/api/trips/$tripId/reject');
+      await Dio().post('http://192.168.100.240:8080/api/trips/$tripId/reject');
     } catch (e) {
       print("Lỗi từ chối: $e");
     }
