@@ -33,7 +33,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
   bool _isOnline = false;
   bool _isLoading = true;
   int _selectedIndex = 0;
-
+  Map<String, dynamic>? _driverProfile;
   // Quản lý Stream (Lắng nghe dữ liệu)
   StreamSubscription<Position>? _positionStream;
   StreamSubscription<DatabaseEvent>? _tripRequestSubscription;
@@ -58,6 +58,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
     print("🆔 ID TÀI XẾ ĐANG ĐĂNG NHẬP: $uid");// Lấy vị trí hiện tại
     _listenToTripRequests();   // Bắt đầu lắng nghe cuốc xe từ Firebase
     _fetchWalletBalance();
+    _fetchDriverProfile();
   }
 
   @override
@@ -113,6 +114,22 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
       }
     } catch (e) {
       print("Lỗi lấy số dư: $e");
+    }
+  }
+  Future<void> _fetchDriverProfile() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final response = await ApiClient().dio.get('/drivers/profile/$uid');
+      if (response.statusCode == 200) {
+        setState(() {
+          _driverProfile = response.data;
+          // Cập nhật luôn số dư ví cho biến cũ
+          _walletBalance = (_driverProfile?['walletBalance'] ?? 0).toDouble();
+        });
+      }
+    } catch (e) {
+      print("Lỗi profile: $e");
     }
   }
 
@@ -509,10 +526,106 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
       ),
     );
   }
-  Widget _buildProfileTab() => Center(
-      child: ElevatedButton(onPressed: () async { await AuthService().signOut(); Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen())); }, child: const Text("Đăng xuất"))
-  );
+  Widget _buildProfileTab() {
+    if (_driverProfile == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
+    return Scaffold(
+      backgroundColor: Colors.grey[100],
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // HEADER: Avatar + Tên + Xe
+            Container(
+              color: AppColors.darkGreen,
+              padding: const EdgeInsets.fromLTRB(20, 60, 20, 30),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.white,
+                    backgroundImage: NetworkImage(_driverProfile?['avatarUrl'] ?? "https://i.pravatar.cc/300"),
+                  ),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_driverProfile?['name'] ?? "Tài xế",
+                            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white)),
+                        const SizedBox(height: 5),
+                        Text("${_driverProfile?['vehicleType'] ?? 'Xe'} • ${_driverProfile?['plate'] ?? 'Chưa cập nhật'}",
+                            style: const TextStyle(color: Colors.white70)),
+                      ],
+                    ),
+                  )
+                ],
+              ),
+            ),
+
+            // STATS CARD: Ví - Chuyến - Sao
+            Transform.translate(
+              offset: const Offset(0, -20),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildStatItem("Ví tiền", "${_walletBalance.toStringAsFixed(0)}k", Colors.green),
+                    _buildStatItem("Chuyến", "${_driverProfile?['totalTrips'] ?? 0}", Colors.blue),
+                    _buildStatItem("Đánh giá", "${_driverProfile?['rating'] ?? 5.0} ⭐", Colors.orange),
+                  ],
+                ),
+              ),
+            ),
+
+            // MENU OPTIONS
+            const SizedBox(height: 10),
+            _buildMenuTile(Icons.history, "Lịch sử hoạt động", () {}),
+            _buildMenuTile(Icons.bar_chart, "Thống kê thu nhập", () {}),
+            _buildMenuTile(Icons.settings, "Cài đặt tài khoản", () {}),
+            _buildMenuTile(Icons.support_agent, "Trung tâm hỗ trợ", () {}),
+
+            const SizedBox(height: 20),
+            _buildMenuTile(Icons.logout, "Đăng xuất", () async {
+              await AuthService().signOut();
+              if(mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+            }, isDestructive: true),
+          ],
+        ),
+      ),
+    );
+  }
+  Widget _buildStatItem(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+        const SizedBox(height: 5),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
+    );
+  }
+
+  // Widget con cho Menu
+  Widget _buildMenuTile(IconData icon, String title, VoidCallback onTap, {bool isDestructive = false}) {
+    return Container(
+      color: Colors.white,
+      margin: const EdgeInsets.only(bottom: 1),
+      child: ListTile(
+        leading: Icon(icon, color: isDestructive ? Colors.red : AppColors.darkGreen),
+        title: Text(title, style: TextStyle(color: isDestructive ? Colors.red : Colors.black)),
+        trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+        onTap: onTap,
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -530,4 +643,5 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
       ),
     );
   }
+
 }

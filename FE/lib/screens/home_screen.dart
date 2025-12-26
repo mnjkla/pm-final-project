@@ -297,18 +297,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _listenForDriverAccept(String tripId) {
-    // Lắng nghe node trips/{tripId} trên Firebase
+    print("🎧 Bắt đầu lắng nghe trạng thái chuyến đi: trips/$tripId");
+
     FirebaseDatabase.instance.ref('trips/$tripId').onValue.listen((event) {
       final data = event.snapshot.value as Map?;
-      if (data != null && data['status'] == 'ACCEPTED') {
-        if (mounted) {
-          Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => TripTrackingScreen(
-                tripId: tripId,
-                driverId: data['driverId'],
-              ))
-          );
+      print("📩 Tín hiệu từ Firebase (Trip): $data"); // In ra để debug
+
+      if (data != null) {
+        String status = data['status'];
+
+        // 👇 SỬA ĐỔI: Kiểm tra đúng trạng thái Backend trả về (DRIVER_ACCEPTED)
+        if (status == 'ACCEPTED' || status == 'DRIVER_ACCEPTED') {
+
+          if (mounted) {
+            // Hủy loading nếu có
+            setState(() => _isLoading = false);
+
+            Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => TripTrackingScreen(
+                  tripId: tripId,
+                  // Lấy driverId từ Firebase trả về (để đảm bảo lấy đúng ID tài xế vừa nhận)
+                  driverId: data['driverId'].toString(),
+                  tripPrice: (_tripDistanceKm * _priceRates[_selectedVehicle]!).toDouble(),
+                ))
+            );
+          }
         }
       }
     });

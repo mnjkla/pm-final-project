@@ -51,4 +51,15 @@ public class FirebaseService {
         DatabaseReference ref = FirebaseDatabase.getInstance().getReference("drivers/" + driverFirebaseId + "/trip_request");
         ref.removeValueAsync();
     }
+    
+    
+    public void updateTripStatus(String tripId, String status, String driverId) {
+            DatabaseReference ref = FirebaseDatabase.getInstance().getReference("trips/" + tripId);
+            
+            Map<String, Object> updates = new HashMap<>();
+            updates.put("status", status); // Ví dụ: DRIVER_ACCEPTED
+            updates.put("driverId", driverId); // Để khách biết ai nhận
+            
+            ref.updateChildrenAsync(updates);
+    }
 }

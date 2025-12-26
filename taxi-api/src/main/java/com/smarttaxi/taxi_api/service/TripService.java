@@ -13,4 +13,5 @@ public interface TripService {
     Trip driverArriveAtPickup(String tripId);
     Trip driverStartTrip(String tripId);
     Trip driverCompleteTrip(String tripId);
+    Trip rateTrip(String tripId, Integer stars, String feedback);
 }

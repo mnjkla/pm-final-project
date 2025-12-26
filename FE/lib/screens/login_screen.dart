@@ -4,7 +4,7 @@ import '../services/auth_service.dart';
 import 'home_screen.dart';        // Màn hình Khách
 import 'driver_main_screen.dart'; // Màn hình Tài xế
 import 'role_selection_screen.dart'; // Màn hình chọn vai trò (cho user mới)
-
+import 'passenger_main_screen.dart';
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -49,7 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverMainScreen()));
       } else if (role == 'PASSENGER') {
         print("Xin chào Khách hàng!");
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PassengerMainScreen()));
       } else {
         // role == 'NEW' -> Chưa có trong DB -> Sang màn chọn vai trò để đăng ký
         print("Người dùng mới -> Chuyển sang chọn vai trò");

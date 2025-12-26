@@ -8,6 +8,10 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 import com.smarttaxi.taxi_api.model.enums.TripStatus;
 
+import lombok.Data;
+@Data
+
+
 @Document(collection = "trips")
 public class Trip {
     @Id
@@ -15,6 +19,8 @@ public class Trip {
 
     private String driverId;
     private String customerId;
+    private Integer rating; // 1 đến 5 sao
+    private String feedback;
 
     // Tọa độ
     private GeoJsonPoint pickupLocation;

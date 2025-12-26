@@ -149,18 +149,45 @@ public class TripServiceImpl implements TripService {
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R * c;
     }
+    
+    
     public Trip driverAcceptTrip(String tripId) {
-        Trip trip = tripRepository.findById(tripId).orElseThrow(() -> new RuntimeException("Trip not found"));
+        // 1. Tìm chuyến đi
+        Trip trip = tripRepository.findById(tripId)
+                .orElseThrow(() -> new RuntimeException("Trip not found"));
         
         if (trip.getStatus() != TripStatus.PENDING) {
             throw new RuntimeException("Chuyến đi không còn khả dụng!");
         }
 
+        // 2. TÌM TÀI XẾ ĐỂ LẤY FIREBASE UID (QUAN TRỌNG NHẤT)
+        // Chúng ta cần lấy đối tượng Driver để lấy trường firebaseId
+        Driver driver = driverRepository.findById(trip.getDriverId())
+                .orElseThrow(() -> new RuntimeException("Driver not found"));
+
+        // 3. Cập nhật vào MongoDB
         trip.setStatus(TripStatus.DRIVER_ACCEPTED);
         tripRepository.save(trip);
 
-        // Xóa request trên Firebase để app tài xế ẩn thông báo
-        firebaseService.clearDriverRequest(trip.getDriverId());
+        // 4. Xóa request riêng của tài xế (Dùng ID nào cũng được vì node này chỉ tài xế nghe)
+        // Nhưng tốt nhất vẫn nên dùng firebaseId nếu cấu trúc node drivers/{uid}/trip_request
+        String driverUid = driver.getFirebaseId(); // Lấy UID chuẩn
+        
+        if (driverUid == null) {
+            // Fallback nếu chưa update DB (Tránh lỗi Null)
+            System.out.println("❌ Lỗi: Tài xế này chưa có Firebase ID trong MongoDB!");
+            driverUid = trip.getDriverId(); 
+        }
+
+        firebaseService.clearDriverRequest(driverUid);
+        
+        // 👇 5. BẮN TIN CHO KHÁCH HÀNG (SỬ DỤNG UID CHUẨN)
+        // Khách hàng sẽ dùng ID này để lắng nghe vị trí xe
+        firebaseService.updateTripStatus(
+            trip.getId(), 
+            TripStatus.DRIVER_ACCEPTED.name(), 
+            driverUid // <--- DÙNG UID, KHÔNG DÙNG MONGO ID
+        );
         
         return trip;
     }
@@ -201,36 +228,64 @@ public class TripServiceImpl implements TripService {
     public Trip driverCompleteTrip(String tripId) {
         // 1. Tìm chuyến đi
         Trip trip = tripRepository.findById(tripId)
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy chuyến đi: " + tripId));
+                .orElseThrow(() -> new RuntimeException("Trip not found"));
 
-        // 2. Tìm tài xế
+        // 2. Tìm tài xế (BẮT BUỘC PHẢI TÌM ĐỂ LẤY FIREBASE ID)
         Driver driver = driverRepository.findById(trip.getDriverId())
-                .orElseThrow(() -> new RuntimeException("Không tìm thấy tài xế!"));
+                .orElseThrow(() -> new RuntimeException("Driver not found"));
 
-        // 3. TÍNH TOÁN THU NHẬP (TRỪ 20% PHÍ DỊCH VỤ)
-        double totalPrice = trip.getPrice();           // Tổng tiền khách trả (Ví dụ: 100.000đ)
-        double serviceFee = totalPrice * 0.20;         // Phí sàn 20% (20.000đ)
-        double driverIncome = totalPrice - serviceFee; // Tài xế nhận 80% (80.000đ)
+        // 3. Tính toán tiền nong (Code cũ - Giữ nguyên)
+        double totalPrice = trip.getPrice();
+        double serviceFee = totalPrice * 0.20;
+        double driverIncome = totalPrice - serviceFee;
 
-        // 4. Cộng tiền vào ví
-        if (driver.getWalletBalance() == null) {
-            driver.setWalletBalance(0.0);
-        }
-        double currentBalance = driver.getWalletBalance();
-        driver.setWalletBalance(currentBalance + driverIncome);
-
-        // 5. Lưu thông tin tài xế
+        // 4. Cộng ví (Code cũ - Giữ nguyên)
+        if (driver.getWalletBalance() == null) driver.setWalletBalance(0.0);
+        driver.setWalletBalance(driver.getWalletBalance() + driverIncome);
         driverRepository.save(driver);
 
-        // In log để kiểm tra (Debug)
-        System.out.println("✅ HOÀN THÀNH CUỐC XE: " + tripId);
-        System.out.println("💵 Tổng thu: " + totalPrice + " VNĐ");
-        System.out.println("📉 Phí sàn (20%): -" + serviceFee + " VNĐ");
-        System.out.println("💰 Cộng ví tài xế: +" + driverIncome + " VNĐ");
-        System.out.println("💳 Số dư ví mới: " + driver.getWalletBalance() + " VNĐ");
-
-        // 6. Cập nhật trạng thái chuyến đi và lưu
+        // 5. Cập nhật MongoDB
         trip.setStatus(TripStatus.COMPLETED);
-        return tripRepository.save(trip);
+        Trip savedTrip = tripRepository.save(trip);
+
+        // 👇 6. QUAN TRỌNG: BẮN TIN LÊN FIREBASE ĐỂ APP KHÁCH BIẾT MÀ HIỆN POPUP
+        String driverUid = driver.getFirebaseId();
+        if (driverUid == null) driverUid = trip.getDriverId(); // Fallback
+
+        firebaseService.updateTripStatus(
+            tripId, 
+            "COMPLETED", // Trạng thái này sẽ kích hoạt Dialog bên khách
+            driverUid
+        );
+
+        return savedTrip;
+    }
+    @Override
+    public Trip rateTrip(String tripId, Integer stars, String feedback) {
+        // 1. Lấy chuyến đi
+        Trip trip = tripRepository.findById(tripId).orElseThrow(() -> new RuntimeException("Trip not found"));
+        
+        // 2. Lưu đánh giá vào chuyến đi
+        trip.setRating(stars);
+        trip.setFeedback(feedback);
+        
+        // 3. Tính điểm trung bình cho Tài xế
+        Driver driver = driverRepository.findById(trip.getDriverId()).orElseThrow();
+        
+        double currentRating = driver.getRating() == null ? 5.0 : driver.getRating();
+        int currentCount = driver.getRatingCount() == null ? 0 : driver.getRatingCount();
+        
+        // Công thức tính trung bình cộng dồn
+        double newRating = ((currentRating * currentCount) + stars) / (currentCount + 1);
+        
+        // Làm tròn 1 chữ số thập phân (Ví dụ: 4.8)
+        newRating = Math.round(newRating * 10.0) / 10.0;
+        
+        driver.setRating(newRating);
+        driver.setRatingCount(currentCount + 1);
+        
+        driverRepository.save(driver); // Lưu tài xế
+        
+        return tripRepository.save(trip); // Lưu chuyến đi
     }
 }
