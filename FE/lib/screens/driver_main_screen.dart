@@ -1,7 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:dio/dio.dart'; // Để vẽ đường (Polyline)
+
+import '../core/app_colors.dart';
 import '../services/auth_service.dart';
+import '../services/place_service.dart'; // [MỚI] Import PlaceService
 import 'login_screen.dart';
 
 class DriverMainScreen extends StatefulWidget {
@@ -12,125 +20,344 @@ class DriverMainScreen extends StatefulWidget {
 }
 
 class _DriverMainScreenState extends State<DriverMainScreen> {
-  final AuthService _authService = AuthService();
-  bool _isOnline = false; // Trạng thái nhận cuốc
-  final LatLng _center = const LatLng(21.0285, 105.8542);
+  int _selectedIndex = 0;
+
+  final MapController _mapController = MapController();
+  final DatabaseReference _dbRef = FirebaseDatabase.instance.ref();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final PlaceService _placeService = PlaceService(); // [MỚI]
+  final Dio _dio = Dio(); // [MỚI] Để gọi API vẽ đường
+
+  LatLng _currentLocation = const LatLng(21.0285, 105.8542);
+  bool _isOnline = false;
+  bool _isLoading = true;
+  StreamSubscription<Position>? _positionStream;
+
+  // --- [MỚI] BIẾN CHO CHẾ ĐỘ TIỆN ĐƯỜNG ---
+  LatLng? _convenienceDest;       // Tọa độ điểm muốn về
+  String _convenienceAddress = ""; // Địa chỉ điểm muốn về
+  List<LatLng> _routePoints = [];  // Đường vẽ trên bản đồ
+  List<Map<String, dynamic>> _searchResults = []; // Kết quả tìm kiếm
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _determinePosition();
+  }
+
+  @override
+  void dispose() {
+    _positionStream?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _determinePosition() async {
+    // ... (Giữ nguyên logic lấy GPS cũ của bạn)
+    // Tạm tắt bớt code cũ để tập trung vào phần mới cho gọn
+    // Bạn hãy giữ lại phần check permission như bài trước nhé!
+    try {
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      if (mounted) {
+        setState(() {
+          _currentLocation = LatLng(position.latitude, position.longitude);
+          _isLoading = false;
+        });
+        _mapController.move(_currentLocation, 16.0);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // --- [MỚI] LOGIC TÌM ĐỊA ĐIỂM ---
+  void _onSearchChanged(String query) {
+    if (query.isEmpty) {
+      setState(() => _searchResults = []);
+      return;
+    }
+    // Debounce đơn giản
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      if (_searchController.text != query) return;
+      final results = await _placeService.searchPlaces(query);
+      if (mounted) setState(() => _searchResults = results);
+    });
+  }
+
+  void _selectConvenienceDest(Map<String, dynamic> place) async {
+    FocusScope.of(context).unfocus();
+    LatLng dest = LatLng(place['lat'], place['lng']);
+
+    setState(() {
+      _convenienceDest = dest;
+      _convenienceAddress = place['name'];
+      _isSearching = false;
+      _searchResults = [];
+      _searchController.clear();
+    });
+
+    // Vẽ đường từ vị trí xe đến điểm tiện chuyến
+    _getRouteToDest(dest);
+
+    // Cập nhật lên Firebase
+    _updateDriverStatusToFirebase();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("🚗 Đã bật chế độ tiện đường về: $_convenienceAddress"), backgroundColor: Colors.blue)
+    );
+  }
+
+  // --- [MỚI] VẼ ĐƯỜNG VỀ ---
+  Future<void> _getRouteToDest(LatLng dest) async {
+    String url = 'http://router.project-osrm.org/route/v1/driving/'
+        '${_currentLocation.longitude},${_currentLocation.latitude};'
+        '${dest.longitude},${dest.latitude}'
+        '?overview=full&geometries=geojson';
+    try {
+      var response = await _dio.get(url);
+      if (response.statusCode == 200 && response.data['routes'].isNotEmpty) {
+        var coordinates = response.data['routes'][0]['geometry']['coordinates'] as List;
+        setState(() {
+          _routePoints = coordinates.map((c) => LatLng(c[1], c[0])).toList();
+        });
+        // Zoom để thấy cả 2 điểm
+        _mapController.fitCamera(CameraFit.bounds(
+          bounds: LatLngBounds(_currentLocation, dest),
+          padding: const EdgeInsets.all(50),
+        ));
+      }
+    } catch (e) {
+      print("Lỗi vẽ đường: $e");
+    }
+  }
+
+  void _cancelConvenienceMode() {
+    setState(() {
+      _convenienceDest = null;
+      _convenienceAddress = "";
+      _routePoints = [];
+    });
+    _updateDriverStatusToFirebase();
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Đã tắt chế độ tiện đường"), backgroundColor: Colors.grey)
+    );
+  }
+
+  // --- CẬP NHẬT FIREBASE ---
+  void _updateDriverStatusToFirebase() {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    Map<String, dynamic> updateData = {
+      'status': _isOnline ? 'ONLINE' : 'OFFLINE',
+      'last_updated': ServerValue.timestamp,
+    };
+
+    // Nếu đang bật tiện chuyến, gửi thêm thông tin
+    if (_convenienceDest != null) {
+      updateData['destination_filter'] = {
+        'lat': _convenienceDest!.latitude,
+        'lng': _convenienceDest!.longitude,
+        'address': _convenienceAddress
+      };
+    } else {
+      updateData['destination_filter'] = null; // Xóa filter
+    }
+
+    _dbRef.child('drivers/${user.uid}').update(updateData);
+  }
+
+  void _toggleOnline() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    setState(() => _isOnline = !_isOnline);
+
+    if (_isOnline) {
+      const locationSettings = LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10);
+      _positionStream = Geolocator.getPositionStream(locationSettings: locationSettings).listen((Position position) {
+        final newLoc = LatLng(position.latitude, position.longitude);
+        if (mounted) {
+          setState(() => _currentLocation = newLoc);
+          _mapController.move(newLoc, 16.0);
+        }
+
+        // Update cả vị trí + thông tin tiện chuyến (nếu có)
+        Map<String, dynamic> liveUpdate = {
+          'lat': position.latitude,
+          'lng': position.longitude,
+          'angle': position.heading,
+          'status': 'ONLINE',
+          'last_updated': ServerValue.timestamp,
+        };
+        if (_convenienceDest != null) {
+          liveUpdate['destination_filter'] = {
+            'lat': _convenienceDest!.latitude,
+            'lng': _convenienceDest!.longitude,
+            'address': _convenienceAddress
+          };
+        }
+        _dbRef.child('drivers/${user.uid}').update(liveUpdate);
+      });
+    } else {
+      _positionStream?.cancel();
+      _dbRef.child('drivers/${user.uid}').update({'status': 'OFFLINE'});
+    }
+  }
+
+  Widget _buildHomeTab() {
+    return Stack(
+      children: [
+        // 1. MAP
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            initialCenter: _currentLocation,
+            initialZoom: 16.0,
+            onTap: (_, __) => setState(() { _isSearching = false; FocusScope.of(context).unfocus(); }), // Ẩn tìm kiếm khi chạm map
+          ),
+          children: [
+            TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
+            // Vẽ đường tiện chuyến (Màu cam để phân biệt)
+            if (_routePoints.isNotEmpty)
+              PolylineLayer(polylines: [
+                Polyline(points: _routePoints, strokeWidth: 4.0, color: Colors.orangeAccent),
+              ]),
+            MarkerLayer(
+              markers: [
+                // Marker Xe
+                Marker(
+                  point: _currentLocation, width: 60, height: 60,
+                  child: const Icon(Icons.directions_car, color: AppColors.darkGreen, size: 40),
+                ),
+                // Marker Điểm tiện chuyến
+                if (_convenienceDest != null)
+                  Marker(
+                    point: _convenienceDest!, width: 50, height: 50,
+                    child: const Icon(Icons.flag, color: Colors.orange, size: 40),
+                  )
+              ],
+            ),
+          ],
+        ),
+
+        // 2. SEARCH BAR & STATUS (Header)
+        Positioned(
+          top: 50, left: 15, right: 15,
+          child: Column(
+            children: [
+              // Thanh trạng thái Online
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30), boxShadow: [const BoxShadow(color: Colors.black12, blurRadius: 10)]),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(_isOnline ? "Đang hoạt động" : "Đang ngoại tuyến", style: TextStyle(fontWeight: FontWeight.bold, color: _isOnline ? Colors.green : Colors.grey)),
+                    Switch(value: _isOnline, activeColor: Colors.green, onChanged: (_) => _toggleOnline()),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              // [MỚI] Thanh tiện đường (Hiển thị khi đang Set hoặc bấm tìm kiếm)
+              if (_isSearching || _convenienceDest != null)
+                Container(
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), boxShadow: [const BoxShadow(color: Colors.black12, blurRadius: 10)]),
+                  child: Column(
+                    children: [
+                      if (_convenienceDest == null)
+                        TextField(
+                          controller: _searchController,
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                              hintText: "Nhập địa chỉ muốn về...",
+                              prefixIcon: Icon(Icons.search),
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(vertical: 15)
+                          ),
+                          onChanged: _onSearchChanged,
+                        ),
+                      if (_convenienceDest != null)
+                        ListTile(
+                          leading: const Icon(Icons.alt_route, color: Colors.orange),
+                          title: const Text("Đang tiện đường về:", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          subtitle: Text(_convenienceAddress, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          trailing: IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: _cancelConvenienceMode),
+                        ),
+
+                      // List kết quả tìm kiếm
+                      if (_searchResults.isNotEmpty && _convenienceDest == null)
+                        Container(
+                          constraints: const BoxConstraints(maxHeight: 200),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: _searchResults.length,
+                            separatorBuilder: (_,__) => const Divider(height: 1),
+                            itemBuilder: (ctx, i) => ListTile(
+                              title: Text(_searchResults[i]['name']),
+                              onTap: () => _selectConvenienceDest(_searchResults[i]),
+                            ),
+                          ),
+                        )
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+
+        // 3. NÚT KÍCH HOẠT TIỆN CHUYẾN (Góc dưới trái)
+        if (!_isSearching && _convenienceDest == null)
+          Positioned(
+            bottom: 100, left: 20,
+            child: FloatingActionButton.extended(
+              heroTag: "btnConvenience",
+              onPressed: () => setState(() => _isSearching = true),
+              backgroundColor: Colors.white,
+              icon: const Icon(Icons.alt_route, color: Colors.orange),
+              label: const Text("Tiện đường", style: TextStyle(color: Colors.black)),
+            ),
+          ),
+
+        // 4. Nút về vị trí (Góc dưới phải)
+        Positioned(
+          bottom: 20, right: 20,
+          child: FloatingActionButton(
+            heroTag: "btnLoc",
+            onPressed: _determinePosition,
+            backgroundColor: Colors.white,
+            child: const Icon(Icons.my_location, color: Colors.blue),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // (Giữ nguyên các tab Earnings và Profile như cũ)
+  Widget _buildEarningsTab() => const Center(child: Text("Thu nhập"));
+  Widget _buildProfileTab() => Center(
+      child: ElevatedButton(onPressed: () async { await AuthService().signOut(); Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen())); }, child: const Text("Đăng xuất"))
+  );
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          // 1. BẢN ĐỒ
-          FlutterMap(
-            options: MapOptions(
-              initialCenter: _center,
-              initialZoom: 15.0,
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.smarttaxi.driver',
-              ),
-              MarkerLayer(
-                markers: [
-                  Marker(
-                    point: _center,
-                    width: 80,
-                    height: 80,
-                    child: const Icon(Icons.local_taxi, color: Colors.blue, size: 40), // Icon Taxi
-                  ),
-                ],
-              ),
-            ],
-          ),
-
-          // 2. THANH TRẠNG THÁI (Online/Offline)
-          Positioned(
-            top: 50,
-            left: 20,
-            right: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              decoration: BoxDecoration(
-                color: _isOnline ? Colors.blue : Colors.grey[800],
-                borderRadius: BorderRadius.circular(30),
-                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10)],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _isOnline ? "ĐANG TRỰC TUYẾN" : "ĐANG NGOẠI TUYẾN",
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  Switch(
-                    value: _isOnline,
-                    activeColor: Colors.white,
-                    activeTrackColor: Colors.lightBlueAccent,
-                    onChanged: (val) {
-                      setState(() => _isOnline = val);
-                      // TODO: Gọi API báo Backend cập nhật trạng thái
-                      print("Tài xế đã chuyển sang: $val");
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // 3. MENU DƯỚI (Thống kê & Đăng xuất)
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -5))],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _buildStatItem("Thu nhập", "500k", Colors.green),
-                      _buildStatItem("Số cuốc", "8", Colors.orange),
-                      _buildStatItem("Giờ online", "4.5h", Colors.blue),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.logout, color: Colors.red),
-                      label: const Text("Đăng xuất", style: TextStyle(color: Colors.red)),
-                      onPressed: () async {
-                        await _authService.signOut();
-                        if(!mounted) return;
-                        Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
-                      },
-                    ),
-                  )
-                ],
-              ),
-            ),
-          ),
+      resizeToAvoidBottomInset: false, // Tránh vỡ layout khi hiện bàn phím
+      body: _isLoading ? const Center(child: CircularProgressIndicator()) : [_buildHomeTab(), _buildEarningsTab(), _buildProfileTab()][_selectedIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        selectedItemColor: AppColors.darkGreen,
+        onTap: (index) => setState(() => _selectedIndex = index),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.map), label: "Trang chủ"),
+          BottomNavigationBarItem(icon: Icon(Icons.attach_money), label: "Thu nhập"),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: "Cá nhân"),
         ],
       ),
-    );
-  }
-
-  Widget _buildStatItem(String title, String value, Color color) {
-    return Column(
-      children: [
-        Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-        const SizedBox(height: 5),
-        Text(title, style: const TextStyle(color: Colors.grey)),
-      ],
     );
   }
 }

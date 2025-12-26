@@ -4,6 +4,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // [MỚI] Thêm thư viện Auth
+
 import '../core/app_colors.dart';
 import '../services/driver_service.dart';
 import '../models/driver_model.dart';
@@ -25,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final TripService _tripService = TripService();
   final MapController _mapController = MapController();
   final Dio _dio = Dio();
+  final FirebaseAuth _auth = FirebaseAuth.instance; // [MỚI] Instance Auth
 
   // Controllers
   final TextEditingController _pickupController = TextEditingController();
@@ -107,9 +110,8 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
-  // --- [UPDATE QUAN TRỌNG] Lấy địa chỉ thật từ API ---
+  // 3. Lấy địa chỉ thật từ API
   Future<void> _getAddressFromLatLng(LatLng point, {required bool isPickup, bool autoZoom = false}) async {
-    // Gọi PlaceService để lấy tên đường thật (123 Le Loi...)
     String address = await _placeService.getPlaceName(point.latitude, point.longitude);
 
     if (!mounted) return;
@@ -123,13 +125,12 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
 
-    // Nếu đủ 2 điểm thì vẽ đường (truyền tham số autoZoom vào)
     if (_pickupLocation != null && _destLocation != null) {
       _getRoute(autoZoom: autoZoom);
     }
   }
 
-  // --- [UPDATE QUAN TRỌNG] Vẽ đường với tùy chọn Zoom ---
+  // 4. Vẽ đường
   Future<void> _getRoute({bool autoZoom = false}) async {
     if (_pickupLocation == null || _destLocation == null) return;
 
@@ -152,7 +153,6 @@ class _HomeScreenState extends State<HomeScreen> {
             _tripDistanceKm = distanceMeters / 1000;
           });
 
-          // CHỈ ZOOM KHI ĐƯỢC PHÉP
           if (autoZoom) {
             _fitBounds();
           }
@@ -199,7 +199,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // --- [LOGIC MỚI] Khi kéo Map, KHÔNG Zoom, chỉ cập nhật địa chỉ ---
   void _onMapPositionChanged(MapCamera camera, bool hasGesture) {
     if (hasGesture) {
       setState(() {
@@ -208,11 +207,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _searchResults = [];
       });
 
-      // Debounce để tránh gọi API liên tục khi đang kéo
       if (_debounce?.isActive ?? false) _debounce!.cancel();
       _debounce = Timer(const Duration(milliseconds: 800), () {
         setState(() => _isDragging = false);
-        // autoZoom = false vì người dùng đang chủ động kéo
         _getAddressFromLatLng(_centerMapPosition, isPickup: _isSelectingPickup, autoZoom: false);
         if (_isSelectingPickup) _fetchNearbyDrivers();
       });
@@ -229,7 +226,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // --- [LOGIC MỚI] Khi chọn kết quả tìm kiếm ---
   void _onSearchResultSelected(Map<String, dynamic> place) {
     FocusScope.of(context).unfocus();
     LatLng selectedPos = LatLng(place['lat'], place['lng']);
@@ -238,19 +234,29 @@ class _HomeScreenState extends State<HomeScreen> {
       _centerMapPosition = selectedPos;
     });
 
-    // autoZoom = false để giữ người dùng ở điểm vừa chọn
     _getAddressFromLatLng(selectedPos, isPickup: _isSelectingPickup, autoZoom: false);
     _mapController.move(selectedPos, 16.0);
 
     if (_isSelectingPickup) _fetchNearbyDrivers();
   }
 
-  // Gọi API Đặt xe
+  // --- [SỬA LỖI] Gọi API Đặt xe ---
   void _onBookTrip() async {
     if (_pickupLocation == null) return;
+
+    // [FIX] Kiểm tra đăng nhập để lấy ID khách hàng
+    final User? user = _auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ Bạn cần đăng nhập để đặt xe!"), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     final request = TripRequest(
+      customerId: user.uid, // [FIX] Truyền ID khách hàng vào đây
       pickupLatitude: _pickupLocation!.latitude,
       pickupLongitude: _pickupLocation!.longitude,
       pickupAddress: _pickupController.text,
@@ -266,11 +272,12 @@ class _HomeScreenState extends State<HomeScreen> {
         FocusScope.of(context).unfocus();
         ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text("✅ Đã tìm thấy tài xế! Mã: ${trip.id} - Giá: ${(_tripDistanceKm * _priceRates[_selectedVehicle]!).toStringAsFixed(0)}đ"),
+              content: Text("✅ Tìm thấy tài xế! Mã: ${trip.id} - Giá: ${(_tripDistanceKm * _priceRates[_selectedVehicle]!).toStringAsFixed(0)}đ"),
               backgroundColor: Colors.green,
               duration: const Duration(seconds: 5),
             )
         );
+        // Có thể navigate sang màn hình Tracking ở đây
       }
     } catch (e) {
       if (mounted) {
@@ -296,7 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
               initialCenter: _centerMapPosition,
               initialZoom: 16.0,
               onTap: (_, __) => FocusScope.of(context).unfocus(),
-              onPositionChanged: _onMapPositionChanged, // Đã cập nhật logic kéo
+              onPositionChanged: _onMapPositionChanged,
             ),
             children: [
               TileLayer(
@@ -387,7 +394,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Positioned(
             bottom: 300, right: 20,
             child: FloatingActionButton(
-              onPressed: () => _determinePosition(), // Reset về vị trí mình
+              onPressed: () => _determinePosition(),
               backgroundColor: Colors.white,
               child: const Icon(Icons.my_location, color: Colors.blue),
             ),
