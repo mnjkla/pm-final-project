@@ -4,6 +4,7 @@ import 'screens/login_screen.dart';
 // 1. THÊM DÒNG NÀY (File này do lệnh flutterfire configure tạo ra)
 import 'firebase_options.dart';
 import 'screens/home_screen.dart';
+import 'screens/role_selection_screen.dart';
 
 
 void main() async {
@@ -26,7 +27,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       // ... theme
       // Sửa home thành LoginScreen (không cần tham số)
-      home: const LoginScreen(),
+      home: const RoleSelectionScreen(),
     );
   }
 }

@@ -18,6 +18,7 @@ import com.smarttaxi.taxi_api.payload.request.TripRequest;
 import com.smarttaxi.taxi_api.repository.DriverRepository;
 import com.smarttaxi.taxi_api.repository.PriceConfigRepository; 
 import com.smarttaxi.taxi_api.repository.TripRepository;
+import com.smarttaxi.taxi_api.service.FirebaseService;
 import com.smarttaxi.taxi_api.service.TripService;
 
 import lombok.RequiredArgsConstructor;
@@ -54,9 +55,12 @@ public class TripServiceImpl implements TripService {
     private final TripRepository tripRepository;
     private final DriverRepository driverRepository;
     private final PriceConfigRepository priceConfigRepository;
+    private final FirebaseService firebaseService;
 
     @Override
     public Trip createTrip(TripRequest request) {
+        
+
         // 1. Lấy tọa độ đón
         Point pickupPoint = new Point(request.getPickupLongitude(), request.getPickupLatitude());
         
@@ -98,13 +102,15 @@ public class TripServiceImpl implements TripService {
         // Set giá và trạng thái
         newTrip.setDistance(estimatedKm);
         newTrip.setPrice(finalPrice);
-        newTrip.setStatus(TripStatus.DRIVER_ACCEPTED); // Hoặc WAITING_DRIVER tùy flow
-        
+        newTrip.setStatus(TripStatus.PENDING); // Hoặc WAITING_DRIVER tùy flow
+        Trip savedTrip = tripRepository.save(newTrip);
+        firebaseService.notifyDriverNewTrip(bestDriver.getId(), savedTrip);
+
         return tripRepository.save(newTrip);
     }
 
     // --- Helper: Tính điểm tài xế ---
-    // --- Helper: Tính điểm tài xế ---
+
     private double calculateDriverScore(Driver driver) {
         
         double ratingScore = (driver.getRating() == null) ? 5.0 : driver.getRating();
@@ -137,7 +143,30 @@ public class TripServiceImpl implements TripService {
         double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R * c;
     }
-    
+    public Trip driverAcceptTrip(String tripId) {
+        Trip trip = tripRepository.findById(tripId).orElseThrow(() -> new RuntimeException("Trip not found"));
+        
+        if (trip.getStatus() != TripStatus.PENDING) {
+            throw new RuntimeException("Chuyến đi không còn khả dụng!");
+        }
+
+        trip.setStatus(TripStatus.DRIVER_ACCEPTED);
+        tripRepository.save(trip);
+
+        // Xóa request trên Firebase để app tài xế ẩn thông báo
+        firebaseService.clearDriverRequest(trip.getDriverId());
+        
+        return trip;
+    }
+    public void driverRejectTrip(String tripId) {
+        Trip trip = tripRepository.findById(tripId).orElseThrow();
+        
+        // Logic đơn giản: Hủy chuyến hoặc tìm tài xế khác (ở đây demo hủy trước)
+        trip.setStatus(TripStatus.CANCELLED); 
+        tripRepository.save(trip);
+
+        firebaseService.clearDriverRequest(trip.getDriverId());
+    }
     @Override
     public Trip getTrip(String id) {
         return tripRepository.findById(id).orElse(null);

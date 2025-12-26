@@ -12,6 +12,7 @@ import '../services/auth_service.dart';
 import '../services/place_service.dart'; // [MỚI] Import PlaceService
 import 'login_screen.dart';
 
+import '../core/api_client.dart';
 class DriverMainScreen extends StatefulWidget {
   const DriverMainScreen({super.key});
 
@@ -28,6 +29,7 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
   final PlaceService _placeService = PlaceService(); // [MỚI]
   final Dio _dio = Dio(); // [MỚI] Để gọi API vẽ đường
 
+
   LatLng _currentLocation = const LatLng(21.0285, 105.8542);
   bool _isOnline = false;
   bool _isLoading = true;
@@ -40,24 +42,135 @@ class _DriverMainScreenState extends State<DriverMainScreen> {
   List<Map<String, dynamic>> _searchResults = []; // Kết quả tìm kiếm
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
+  StreamSubscription<DatabaseEvent>? _requestSubscription;
 
   @override
   void initState() {
     super.initState();
     _determinePosition();
+    _listenForTripRequests();
   }
 
   @override
   void dispose() {
+    _requestSubscription?.cancel();
     _positionStream?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
+  void _listenForTripRequests() {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    // Lắng nghe node: drivers/{uid}/trip_request
+    _requestSubscription = _dbRef.child('drivers/${user.uid}/trip_request').onValue.listen((event) {
+      final data = event.snapshot.value;
+      if (data != null) {
+        // Có request mới -> Hiện thông báo (Dialog hoặc BottomSheet)
+        final requestMap = Map<String, dynamic>.from(data as Map);
+        _showTripRequestDialog(requestMap);
+      } else {
+        // Request bị xóa (do đã nhận/từ chối hoặc user hủy) -> Đóng Dialog nếu đang mở
+        if (Navigator.canPop(context)) {
+          // Có thể check xem dialog nào đang mở để pop cho chính xác
+        }
+      }
+    });
+  }
+  void _showTripRequestDialog(Map<String, dynamic> request) {
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("🚖 YÊU CẦU CHUYẾN ĐI MỚI", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.darkGreen)),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.my_location, color: Colors.blue),
+                title: const Text("Điểm đón"),
+                subtitle: Text(request['pickupAddress'] ?? "Không xác định", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.location_on, color: Colors.red),
+                title: const Text("Điểm đến"),
+                subtitle: Text(request['destinationAddress'] ?? "Không xác định", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    Text("${(request['distance'] ?? 0).toStringAsFixed(1)} km", style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text("${(request['price'] ?? 0).toStringAsFixed(0)} đ", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.pop(context); // Đóng dialog
+                        _rejectTrip(request['tripId']);
+                      },
+                      style: OutlinedButton.styleFrom(foregroundColor: Colors.red, side: const BorderSide(color: Colors.red)),
+                      child: const Text("TỪ CHỐI"),
+                    ),
+                  ),
+                  const SizedBox(width: 15),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context); // Đóng dialog
+                        _acceptTrip(request['tripId']);
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.darkGreen, foregroundColor: Colors.white),
+                      child: const Text("NHẬN CHUYẾN"),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
+        );
+      },
+    );
+  }
+  Future<void> _acceptTrip(String tripId) async {
+    try {
+      // Gọi API Backend: POST /api/trips/{id}/accept
+      // Lưu ý: Thay ApiClient().dio bằng instance Dio của bạn
+      final response = await Dio().post('http://10.0.2.2:8080/api/trips/$tripId/accept');
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Đã nhận chuyến thành công!")));
+        // Điều hướng sang màn hình đón khách (DriverTripScreen)
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Lỗi: $e")));
+    }
+  }
+
+  Future<void> _rejectTrip(String tripId) async {
+    try {
+      await Dio().post('http://10.0.2.2:8080/api/trips/$tripId/reject');
+    } catch (e) {
+      print("Lỗi từ chối: $e");
+    }
+  }
+
+
   Future<void> _determinePosition() async {
-    // ... (Giữ nguyên logic lấy GPS cũ của bạn)
-    // Tạm tắt bớt code cũ để tập trung vào phần mới cho gọn
-    // Bạn hãy giữ lại phần check permission như bài trước nhé!
+
     try {
       Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       if (mounted) {
