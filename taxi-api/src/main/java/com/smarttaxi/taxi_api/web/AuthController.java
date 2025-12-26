@@ -29,7 +29,7 @@ public class AuthController {
     private final DriverRepository driverRepository;
     private final PassengerRepository passengerRepository;
 
-    // --- 1. HÀM ĐĂNG KÝ / ĐỒNG BỘ USER (Hàm này bị thiếu lúc nãy) ---
+    // --- 1. HÀM ĐĂNG KÝ / ĐỒNG BỘ USER ---
     @PostMapping("/sync-user")
     public ResponseEntity<?> syncUser(@RequestHeader("Authorization") String token, 
                                       @RequestBody Map<String, String> userInfo) {

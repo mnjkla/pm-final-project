@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
-import 'main_screen.dart';
+import 'home_screen.dart'; // Đã sửa: Import HomeScreen thay vì MainScreen
 import 'driver_main_screen.dart';
 import 'login_screen.dart'; // Để nút Logout có thể quay về đây
 
@@ -99,10 +99,11 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
       if (!mounted) return;
       Navigator.pop(context); // Tắt loading
 
-      // Vào màn hình chính
+      // Vào màn hình chính phù hợp với vai trò
+      // SỬA TẠI ĐÂY: Nếu không phải Driver thì vào HomeScreen
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => role == 'DRIVER' ? const DriverMainScreen() : const MainScreen()),
+        MaterialPageRoute(builder: (_) => role == 'DRIVER' ? const DriverMainScreen() : const HomeScreen()),
             (route) => false,
       );
 
